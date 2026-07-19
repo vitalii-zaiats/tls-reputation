@@ -7,6 +7,7 @@ response identifies a person: there is no client IP in the database to leak.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -457,6 +458,68 @@ async def get_alpn() -> dict:
     total_obs = sum(int(r["observations"] or 0) for r in rows) or 1
     corpus_snis = await db.sni_count()
 
+    # Per-ALPN client split. The catalog names a build, but here we care only
+    # about the client, so every environment of "Python requests" collapses to
+    # one segment; anything the catalog does not recognise falls into a single
+    # anonymous bucket keyed on None. Built once from every fingerprint, then
+    # looked up per ALPN offer.
+    breakdown: dict[tuple, dict[str | None, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: {"fingerprints": 0, "observations": 0})
+    )
+    for fp in await db.alpn_client_fingerprints():
+        hit = known_client(fp["ja4"])
+        name = hit["name"] if hit else None
+        seg = breakdown[tuple(fp["alpn"])][name]
+        seg["fingerprints"] += 1
+        seg["observations"] += int(fp["observations"] or 0)
+
+    def clients_of(alpn: list) -> tuple[list[dict], int, int]:
+        """One ALPN offer's split by client: named segments biggest-first, then
+        the anonymous remainder. Also returns the named totals, so a row can
+        state how much of itself it can put a name to."""
+        buckets = breakdown.get(tuple(alpn), {})
+        named = [
+            {"name": n, "known": True, **w} for n, w in buckets.items() if n is not None
+        ]
+        named.sort(key=lambda s: (s["fingerprints"], s["observations"]), reverse=True)
+        anon = buckets.get(None)
+        segments = named + (
+            [{"name": None, "known": False, **anon}] if anon else []
+        )
+        return (
+            segments,
+            sum(s["fingerprints"] for s in named),
+            sum(s["observations"] for s in named),
+        )
+
+    items = []
+    known_fps_total = known_obs_total = 0
+    for r in rows:
+        segments, known_fps, known_obs = clients_of(r["alpn"])
+        known_fps_total += known_fps
+        known_obs_total += known_obs
+        obs = int(r["observations"] or 0)
+        items.append(
+            {
+                "alpn": list(r["alpn"]),
+                "label": ", ".join(r["alpn"]) or None,
+                "fingerprints": r["fingerprints"],
+                "observations": obs,
+                "share_of_fingerprints": round(r["fingerprints"] / total_fps, 6),
+                "share_of_observations": round(obs / total_obs, 6),
+                "unique_snis": r["unique_snis"],
+                # Of every domain in the corpus, the fraction this ALPN class
+                # was seen reaching. Overlapping by construction — see
+                # `sni_counts_overlap`.
+                "share_of_snis": round(r["unique_snis"] / (corpus_snis or 1), 6),
+                # How this ALPN offer breaks down by client, and how much of it
+                # the catalog can name at all.
+                "clients": segments,
+                "known_fingerprints": known_fps,
+                "known_observations": known_obs,
+            }
+        )
+
     return {
         "total_fingerprints": total_fps,
         "total_observations": total_obs,
@@ -466,24 +529,11 @@ async def get_alpn() -> dict:
         # per-ALPN counts sum past this total and are not a partition.
         "total_snis": corpus_snis,
         "sni_counts_overlap": True,
-        "items": [
-            {
-                "alpn": list(r["alpn"]),
-                "label": ", ".join(r["alpn"]) or None,
-                "fingerprints": r["fingerprints"],
-                "observations": int(r["observations"] or 0),
-                "share_of_fingerprints": round(r["fingerprints"] / total_fps, 6),
-                "share_of_observations": round(
-                    int(r["observations"] or 0) / total_obs, 6
-                ),
-                "unique_snis": r["unique_snis"],
-                # Of every domain in the corpus, the fraction this ALPN class
-                # was seen reaching. Overlapping by construction — see
-                # `sni_counts_overlap`.
-                "share_of_snis": round(r["unique_snis"] / (corpus_snis or 1), 6),
-            }
-            for r in rows
-        ],
+        # Corpus-wide, how much of it the catalog can name. Everything else is
+        # a fingerprint no ground-truth run has reproduced yet.
+        "known_fingerprints": known_fps_total,
+        "known_observations": known_obs_total,
+        "items": items,
     }
 
 

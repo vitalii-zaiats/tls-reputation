@@ -99,6 +99,7 @@ function tintFor(index, isOther) {
 
 const alpnColumns = [
   { key: 'label', label: 'alpn offer', mono: true },
+  { key: 'composition', label: 'clients', width: '17rem' },
   { key: 'fingerprints', label: 'fingerprints', align: 'right' },
   { key: 'share_of_fingerprints', label: 'share of fps', align: 'right' },
   { key: 'observations', label: 'observations', align: 'right' },
@@ -106,6 +107,33 @@ const alpnColumns = [
   { key: 'unique_snis', label: 'domains', align: 'right' },
   { key: 'share_of_snis', label: 'of all domains', align: 'right' },
 ]
+
+/**
+ * Fold a set of ALPN offers' client splits into one. Used for the grouped
+ * tail: several offers become a row, so their per-client weights are summed by
+ * client name. Named clients come out biggest-first, the anonymous bucket last,
+ * matching the order the API already returns per offer.
+ */
+function mergeClients(items) {
+  const acc = new Map()
+  for (const it of items) {
+    for (const c of it.clients ?? []) {
+      const key = c.known ? c.name : '__anon__'
+      const prev = acc.get(key)
+      if (prev) {
+        prev.fingerprints += c.fingerprints
+        prev.observations += c.observations
+      } else {
+        acc.set(key, { ...c })
+      }
+    }
+  }
+  const all = [...acc.values()]
+  const named = all
+    .filter((c) => c.known)
+    .sort((a, b) => b.fingerprints - a.fingerprints || b.observations - a.observations)
+  return [...named, ...all.filter((c) => !c.known)]
+}
 
 /**
  * Top offers plus a grouped tail. The offer order inside each row is never
@@ -130,6 +158,10 @@ const alpnRows = computed(() => {
     share_of_observations: item.share_of_observations,
     unique_snis: item.unique_snis,
     share_of_snis: item.share_of_snis,
+    // The per-client split of this offer, and how much of it the catalog names.
+    clients: item.clients ?? [],
+    known_fingerprints: item.known_fingerprints ?? 0,
+    known_observations: item.known_observations ?? 0,
     tint: tintFor(i, false),
   }))
 
@@ -147,6 +179,10 @@ const alpnRows = computed(() => {
       // client reached. null renders as an em dash.
       unique_snis: null,
       share_of_snis: null,
+      // The client split is additive, so the tail's is the merge of its offers'.
+      clients: mergeClients(tail),
+      known_fingerprints: sum('known_fingerprints'),
+      known_observations: sum('known_observations'),
       tint: tintFor(0, true),
     })
   }
@@ -165,6 +201,84 @@ function alpnShare(row) {
     alpnBasis.value === 'observations' ? row.share_of_observations : row.share_of_fingerprints
   return Number.isFinite(value) ? value : 0
 }
+
+/* -------------------------------------------------------------------------
+   Per-ALPN client composition
+   Each row carries how its own fingerprints (or observations) split across
+   the clients the catalog can name, plus one anonymous remainder. Drawn as a
+   stacked bar: named clients in amber, the unnamed rest in a neutral, so the
+   amber fraction reads at a glance as "how much of this offer we can identify"
+   — and it answers the known/not-known question per ALPN offer directly.
+   ------------------------------------------------------------------------- */
+
+/** The measure the split is taken on follows the same toggle as the bar. */
+const compKey = computed(() => (alpnBasis.value === 'observations' ? 'observations' : 'fingerprints'))
+
+/**
+ * A short amber ramp for the named clients within a row, brightest first. This
+ * is a rank tint inside one row, not a cross-row identity — a row rarely holds
+ * more than three named clients, and the tooltip carries the actual name.
+ */
+const NAMED_TINTS = [90, 66, 48, 36, 28, 22]
+function namedTint(i) {
+  return `color-mix(in srgb, var(--amber) ${NAMED_TINTS[i] ?? 16}%, var(--panel-2))`
+}
+
+/** Segments for one row's bar, widths as a fraction of that row's own total. */
+function compSegments(row) {
+  const key = compKey.value
+  const total = row[key] || 0
+  if (!total) return []
+  let named = -1
+  return (row.clients ?? []).map((c) => {
+    const value = c[key] || 0
+    const share = value / total
+    return {
+      id: c.known ? c.name : '(unrecognised)',
+      name: c.known ? c.name : 'unrecognised',
+      known: c.known,
+      value,
+      share,
+      width: `${(share * 100).toFixed(3)}%`,
+      tint: c.known ? namedTint(++named) : 'var(--line-strong)',
+    }
+  })
+}
+
+/** How much of this row the catalog can put a name to, on the active measure. */
+function namedShare(row) {
+  const total = row[compKey.value] || 0
+  if (!total) return 0
+  const known =
+    (compKey.value === 'observations' ? row.known_observations : row.known_fingerprints) || 0
+  return known / total
+}
+
+/** The caption under a row's bar: the leading named clients and the named share. */
+function compCaption(row) {
+  const named = (row.clients ?? []).filter((c) => c.known)
+  if (!named.length) return 'unidentified'
+  const shown = named.slice(0, 2).map((c) => c.name)
+  const extra = named.length - shown.length
+  return `${shown.join(', ')}${extra > 0 ? ` +${extra}` : ''} · ${formatShare(namedShare(row))} named`
+}
+
+/** Non-visual description of the whole bar, for the aria-label. */
+function compAria(row) {
+  const segs = compSegments(row)
+  if (!segs.length) return 'no client data'
+  return 'clients: ' + segs.map((s) => `${formatShare(s.share)} ${s.name}`).join(', ')
+}
+
+/** Corpus-wide named share, for the section footnote. */
+const corpusNamed = computed(() => {
+  const d = alpn.value.data
+  if (!d) return null
+  const total = alpnBasis.value === 'observations' ? d.total_observations : d.total_fingerprints
+  const known = alpnBasis.value === 'observations' ? d.known_observations : d.known_fingerprints
+  if (!total || known == null) return null
+  return known / total
+})
 
 async function load(target, fn) {
   target.value.loading = true
@@ -322,6 +436,27 @@ onMounted(() => {
           <span class="swatch" :style="{ background: row.tint }" aria-hidden="true"></span>
           {{ row.label }}
         </template>
+        <!-- What this offer is made of, by client. Named clients in amber, the
+             rest of the offer in a neutral: the amber fraction is how much of
+             the offer the catalog can identify. Widths follow the same
+             fingerprint/observation toggle as the summary bar. -->
+        <template #cell-composition="{ row }">
+          <div class="comp">
+            <div class="comp-bar" role="img" :aria-label="compAria(row)">
+              <span
+                v-for="seg in compSegments(row)"
+                :key="seg.id"
+                class="comp-seg"
+                :class="{ anon: !seg.known }"
+                :style="{ width: seg.width, background: seg.tint }"
+                :title="`${seg.name} — ${formatShare(seg.share)} of this offer (${formatInt(seg.value)} ${compKey})`"
+              ></span>
+            </div>
+            <span class="comp-cap" :class="{ none: !row.known_fingerprints }">{{
+              compCaption(row)
+            }}</span>
+          </div>
+        </template>
         <template #cell-fingerprints="{ value }">{{ formatInt(value) }}</template>
         <template #cell-share_of_fingerprints="{ value }">{{ formatShare(value) }}</template>
         <template #cell-observations="{ value }">{{ formatInt(value) }}</template>
@@ -339,6 +474,19 @@ onMounted(() => {
         {{ formatInt(alpn.data.total_observations) }} observations. The two disagree, and the
         disagreement is informative: a handful of library fingerprints can account for a large
         share of all connections.
+      </p>
+      <p class="footnote">
+        <strong>clients</strong> breaks each offer down by who sent it. The amber runs are the
+        clients the ground-truth catalog can name — <span class="mono">Python requests</span>,
+        <span class="mono">Go net/http</span>, a browser — and the neutral remainder is every
+        fingerprint no catalogued build has reproduced yet. So the amber fraction is how much of
+        an offer we can put a name to; hover a run for the client and its share.<template
+          v-if="corpusNamed !== null"
+        >
+          Across the corpus that is {{ formatShare(corpusNamed) }} of
+          {{ alpnBasis === 'observations' ? 'connections' : 'fingerprints' }} — the catalog is new
+          and small, so most of the corpus is still anonymous.</template
+        >
       </p>
       <p v-if="alpn.data" class="footnote">
         <strong>domains</strong> counts the distinct server names each offer list was seen
@@ -670,6 +818,52 @@ h1 {
   margin-right: var(--sp-2);
   vertical-align: baseline;
   border: var(--border-width) solid var(--line);
+}
+
+/* Per-row client composition: the stacked bar plus its caption. Kept narrow so
+   the numeric columns still fit; the cell overrides the table's nowrap so the
+   caption can sit under the bar. */
+.comp {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 11rem;
+  white-space: normal;
+}
+.comp-bar {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-bar);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+/* Same hairline trick as the summary bar, so neighbours are separable without
+   leaning on the tints. A named run keeps a floor width so a client that is a
+   sliver of the offer is still visible and hoverable; the caption states the
+   true share, so the floor doesn't overstate anything. */
+.comp-seg {
+  min-width: 1px;
+  box-shadow: inset -1px 0 0 var(--panel);
+  transition: width var(--transition);
+}
+.comp-seg:not(.anon) {
+  min-width: 3px;
+}
+.comp-seg:last-child {
+  box-shadow: none;
+}
+.comp-cap {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comp-cap.none {
+  color: var(--faint);
+  font-style: italic;
 }
 
 .links {

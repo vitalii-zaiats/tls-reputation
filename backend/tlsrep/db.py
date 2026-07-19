@@ -560,6 +560,19 @@ async def alpn_distribution() -> list[asyncpg.Record]:
         )
 
 
+async def alpn_client_fingerprints() -> list[asyncpg.Record]:
+    """Every fingerprint with its ALPN offer and weight, for the client split.
+
+    The catalog that turns a ja4 into a client name lives in Python, not the
+    database, so the join to it cannot happen in SQL. This returns the raw
+    material — one row per fingerprint (ja4 is unique), carrying its ALPN offer
+    and how much traffic it carries — and the router folds it into, per ALPN
+    offer, how much is each known client versus still anonymous.
+    """
+    async with pool().acquire() as conn:
+        return await conn.fetch("SELECT alpn, ja4, observations FROM fingerprints")
+
+
 async def sni_count() -> int:
     """Distinct domains in the corpus — the denominator for per-ALPN SNI reach."""
     async with pool().acquire() as conn:
