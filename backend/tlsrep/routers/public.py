@@ -12,6 +12,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from .. import db
+from ..classify import sni_category
 from ..config import settings
 from ..tls.names import CIPHERS, CURVES, EXTENSIONS, SIG_ALGOS, decorate
 
@@ -242,6 +243,9 @@ async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
         "sni": value,
         "observations": observations,
         "unique_fingerprints": totals["unique_fingerprints"],
+        # A name-based hint, not a verdict. Auth-like + many distinct
+        # fingerprints is the credential-stuffing shape.
+        "category": sni_category(value),
         # Entropy over the fingerprints reaching this domain, not over the
         # domains a fingerprint reaches. High spread means the callers are
         # many and evenly distributed — normal for a busy site, and the
@@ -360,6 +364,16 @@ async def list_snis(
     sort: str = Query("observations", pattern="|".join(db.SNI_SORT_KEYS)),
     limit: int = Query(50, ge=1),
     offset: int = Query(0, ge=0),
+    category: str | None = Query(
+        None,
+        pattern="^auth$",
+        description=(
+            "Filter to a name-based category. 'auth' narrows to auth-looking "
+            "server names; crossed with sort=unique_fingerprints this is the "
+            "credential-stuffing lens. A hostname heuristic, not a verdict — "
+            "high precision, low recall."
+        ),
+    ),
 ) -> dict:
     """Domains, sortable by how varied the fingerprints reaching them are.
 
@@ -367,7 +381,7 @@ async def list_snis(
     traffic to them is split across distinct client stacks.
     """
     limit = min(limit, settings.max_limit)
-    rows, total = await db.list_snis(sort, limit, offset)
+    rows, total = await db.list_snis(sort, limit, offset, category)
     return {
         "items": [
             {

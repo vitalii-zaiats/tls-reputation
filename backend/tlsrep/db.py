@@ -11,6 +11,7 @@ from pathlib import Path
 
 import asyncpg
 
+from .classify import AUTH_SQL_REGEX
 from .config import settings
 
 _SCHEMA = Path(__file__).with_name("schema.sql")
@@ -436,18 +437,39 @@ SNI_SORT_KEYS = tuple(_SNI_SORTS)
 
 
 async def list_snis(
-    sort: str, limit: int, offset: int
+    sort: str, limit: int, offset: int, category: str | None = None
 ) -> tuple[list[asyncpg.Record], int]:
+    """List domains, optionally filtered to a name-based category.
+
+    `category="auth"` narrows to auth-looking server names. Crossed with a sort
+    on unique_fingerprints or spread, that is the credential-stuffing lens: an
+    auth endpoint reached by many distinct client stacks. The regex is derived
+    from the same term list the Python classifier uses, so filter and label
+    cannot drift apart.
+    """
     order = _SNI_SORTS.get(sort, _SNI_SORTS["observations"])
     async with pool().acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT sni, observations, unique_fingerprints, spread,"
-            "       first_seen, last_seen"
-            f" FROM snis ORDER BY {order} LIMIT $1 OFFSET $2",
-            limit,
-            offset,
-        )
-        total = await conn.fetchval("SELECT count(*) FROM snis")
+        if category == "auth":
+            rows = await conn.fetch(
+                "SELECT sni, observations, unique_fingerprints, spread,"
+                "       first_seen, last_seen"
+                f" FROM snis WHERE sni ~* $3 ORDER BY {order} LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+                AUTH_SQL_REGEX,
+            )
+            total = await conn.fetchval(
+                "SELECT count(*) FROM snis WHERE sni ~* $1", AUTH_SQL_REGEX
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT sni, observations, unique_fingerprints, spread,"
+                "       first_seen, last_seen"
+                f" FROM snis ORDER BY {order} LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+            total = await conn.fetchval("SELECT count(*) FROM snis")
     return rows, total
 
 
