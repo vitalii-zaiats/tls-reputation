@@ -97,16 +97,28 @@ function tintFor(index, isOther) {
   return `color-mix(in srgb, var(--amber) ${mix}%, var(--panel-2))`
 }
 
-const alpnColumns = [
-  { key: 'label', label: 'alpn offer', mono: true },
-  { key: 'composition', label: 'clients', width: '17rem' },
-  { key: 'fingerprints', label: 'fingerprints', align: 'right' },
-  { key: 'share_of_fingerprints', label: 'share of fps', align: 'right' },
-  { key: 'observations', label: 'observations', align: 'right' },
-  { key: 'share_of_observations', label: 'share of obs', align: 'right' },
-  { key: 'unique_snis', label: 'domains', align: 'right' },
-  { key: 'share_of_snis', label: 'of all domains', align: 'right' },
-]
+/**
+ * Only the active basis's two count columns are shown. Fingerprints and
+ * observations disagree by design, but a reader compares within one basis at a
+ * time; showing both doubles the table's width for no gain and pushes it into a
+ * sideways scroll. The toggle picks which pair appears; the bar and the
+ * composition already follow the same toggle.
+ */
+const alpnColumns = computed(() => {
+  const byObs = alpnBasis.value === 'observations'
+  return [
+    { key: 'label', label: 'alpn offer', mono: true },
+    { key: 'composition', label: 'clients', width: '16rem' },
+    byObs
+      ? { key: 'observations', label: 'observations', align: 'right' }
+      : { key: 'fingerprints', label: 'fingerprints', align: 'right' },
+    byObs
+      ? { key: 'share_of_observations', label: 'share of obs', align: 'right' }
+      : { key: 'share_of_fingerprints', label: 'share of fps', align: 'right' },
+    { key: 'unique_snis', label: 'domains', align: 'right' },
+    { key: 'share_of_snis', label: 'of all domains', align: 'right' },
+  ]
+})
 
 /**
  * Fold a set of ALPN offers' client splits into one. Used for the grouped
@@ -823,11 +835,15 @@ h1 {
 /* Per-row client composition: the stacked bar plus its caption. Kept narrow so
    the numeric columns still fit; the cell overrides the table's nowrap so the
    caption can sit under the bar. */
+/* Fixed width, not just a min: the caption is nowrap, so without a ceiling it
+   would stretch the cell to its full text and balloon the whole table into a
+   sideways scroll. At 15rem the caption ellipsises and the column holds. */
 .comp {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  min-width: 11rem;
+  width: 15rem;
+  max-width: 15rem;
   white-space: normal;
 }
 .comp-bar {

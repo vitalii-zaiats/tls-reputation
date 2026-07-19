@@ -32,3 +32,4 @@ ansible/inventory/group_vars/**/vault.yml
 # fingerprint-matrix generated outputs (the curated set lives in backend/tlsrep/known_fingerprints.json)
 tools/fingerprint-matrix/catalog.json
 tools/fingerprint-matrix/catalog.md
+.claude/
