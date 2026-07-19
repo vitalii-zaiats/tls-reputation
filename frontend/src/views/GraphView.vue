@@ -52,6 +52,10 @@ const byId = new Map()
 const edgeByKey = new Map()
 
 const hoverId = ref(null)
+// The readout is sticky where the highlight is transient: it keeps showing the
+// last node touched so the pointer can travel to the panel and click "open
+// detail" without the readout clearing out from under it on pointerleave.
+const readoutId = ref(null)
 const seedError = ref('')
 const expandError = ref('')
 const largeNote = ref(false)
@@ -248,6 +252,7 @@ function buildGraph() {
   panY.value = 0
   zoom.value = 1
   hoverId.value = null
+  readoutId.value = null
   largeNote.value = false
   expandError.value = ''
   reseedMsg.value = ''
@@ -436,9 +441,13 @@ function onPointerUp(e) {
 
 function setHover(id) {
   hoverId.value = id
+  // Sticky: the readout follows the latest node and is not cleared on leave.
+  readoutId.value = id
 }
 
 function clearHover(id) {
+  // Only the highlight is transient; the readout keeps the last node so its
+  // "open detail" link stays reachable.
   if (hoverId.value === id) hoverId.value = null
 }
 
@@ -511,7 +520,9 @@ function hotEdge(e) {
   return h ? h.edgeSet.has(e.key) : false
 }
 
-const activeNode = computed(() => (hoverId.value ? byId.get(hoverId.value) || null : null))
+const activeNode = computed(() =>
+  readoutId.value ? byId.get(readoutId.value) || null : null,
+)
 
 function nodeStat(node) {
   if (node.error) return node.error
