@@ -47,6 +47,10 @@ onMounted(async () => {
       unique_snis: it.unique_snis,
       share_of_fingerprints: it.share_of_fingerprints,
       share_of_observations: it.share_of_observations,
+      // Who this offer is made of, and how much of it the catalog can name.
+      clients: it.clients ?? [],
+      known_fingerprints: it.known_fingerprints ?? 0,
+      known_observations: it.known_observations ?? 0,
     }))
   } catch (err) {
     error.value = err
@@ -84,10 +88,75 @@ const ranked = computed(() => {
       unique_snis: null,
       share_of_fingerprints: tail.reduce((s, r) => s + r.share_of_fingerprints, 0),
       share_of_observations: tail.reduce((s, r) => s + r.share_of_observations, 0),
+      clients: mergeClients(tail),
+      known_fingerprints: tail.reduce((s, r) => s + r.known_fingerprints, 0),
+      known_observations: tail.reduce((s, r) => s + r.known_observations, 0),
     })
   }
   return out
 })
+
+/** Merge several offers' client splits into one, named biggest-first. */
+function mergeClients(items) {
+  const acc = new Map()
+  for (const it of items) {
+    for (const c of it.clients ?? []) {
+      const key = c.known ? c.name : '__anon__'
+      const prev = acc.get(key)
+      if (prev) {
+        prev.fingerprints += c.fingerprints
+        prev.observations += c.observations
+      } else acc.set(key, { ...c })
+    }
+  }
+  const all = [...acc.values()]
+  const named = all
+    .filter((c) => c.known)
+    .sort((a, b) => b.fingerprints - a.fingerprints || b.observations - a.observations)
+  return [...named, ...all.filter((c) => !c.known)]
+}
+
+/* Per-row client composition, on the active basis. Named clients get amber
+   tints (rank within the row), the anonymous remainder a neutral — so the
+   amber fraction of a bar is how much of that offer the catalog can name. */
+const NAMED_TINTS = [90, 66, 48, 36, 28, 22]
+function namedTint(i) {
+  return `color-mix(in srgb, var(--amber) ${NAMED_TINTS[i] ?? 16}%, var(--panel-2))`
+}
+
+function compSegments(r) {
+  const clients = r.clients ?? []
+  const total = r[basis.value] || 0
+  if (!total || !clients.length) {
+    return [{ id: 'anon', width: '100%', tint: 'var(--line-strong)', name: 'unidentified' }]
+  }
+  let ni = -1
+  return clients.map((c) => {
+    const val = c[basis.value] || 0
+    return {
+      id: c.known ? c.name : '(unidentified)',
+      name: c.known ? c.name : 'unidentified',
+      known: c.known,
+      width: `${((val / total) * 100).toFixed(3)}%`,
+      tint: c.known ? namedTint(++ni) : 'var(--line-strong)',
+    }
+  })
+}
+
+function namedShare(r) {
+  const total = r[basis.value] || 0
+  if (!total) return 0
+  const known = basis.value === 'observations' ? r.known_observations : r.known_fingerprints
+  return (known || 0) / total
+}
+
+function compCaption(r) {
+  const named = (r.clients ?? []).filter((c) => c.known)
+  if (!named.length) return 'unidentified'
+  const top = named.slice(0, 2).map((c) => c.name)
+  const extra = named.length - top.length
+  return `${top.join(', ')}${extra > 0 ? ` +${extra}` : ''} · ${pct(namedShare(r))} named`
+}
 
 // Scale bars so the largest fills the track: the shape of the distribution is
 // the point, and it genuinely differs between the two bases.
@@ -117,7 +186,10 @@ const statTiles = computed(() => {
     <header class="head">
       <div class="titles">
         <h1>ALPN offers, live</h1>
-        <p class="sub">What application protocols clients advertise — in their own order.</p>
+        <p class="sub">
+          What clients advertise in ALPN, in their own order — each bar split by who the
+          catalog can name.
+        </p>
       </div>
       <dl v-if="statTiles.length" class="stats">
         <div v-for="t in statTiles" :key="t.label" class="stat">
@@ -154,12 +226,27 @@ const statTiles = computed(() => {
         :class="{ tail: r.isTail, hot: hovered === r.label }"
         @mouseenter="hovered = r.label"
       >
-        <div class="name mono">
-          {{ r.label }}
-          <span v-if="r.reversed" class="flag" title="http/1.1 offered before h2 — no real browser does this">⚠ reversed</span>
+        <div class="idcol">
+          <div class="name mono">
+            {{ r.label }}
+            <span v-if="r.reversed" class="flag" title="http/1.1 offered before h2 — no real browser does this">⚠ reversed</span>
+          </div>
+          <div class="cap" :class="{ none: !r.known_fingerprints }">{{ compCaption(r) }}</div>
         </div>
+        <!-- Bar length is the offer's share; the split inside it is by client —
+             amber runs are the clients the catalog can name, the neutral tail is
+             still anonymous. So a mostly-amber bar is identified traffic. -->
         <div class="track">
-          <div class="fill" :style="{ width: width(r) }"></div>
+          <div class="fillwrap" :style="{ width: width(r) }">
+            <span
+              v-for="seg in compSegments(r)"
+              :key="seg.id"
+              class="seg"
+              :class="{ anon: !seg.known }"
+              :style="{ width: seg.width, background: seg.tint }"
+              :title="seg.name"
+            ></span>
+          </div>
         </div>
         <div class="val mono">{{ pct(r[shareKey]) }}</div>
 
@@ -171,9 +258,10 @@ const statTiles = computed(() => {
 
     <footer class="foot">
       <p class="note">
-        Order is the signal: <span class="mono">h2, http/1.1</span> and
-        <span class="mono">http/1.1, h2</span> are different clients. The two bases disagree —
-        a few library fingerprints carry a large share of connections.
+        Each bar is split by client — <span class="mono">amber</span> is a fingerprint the
+        catalog can name (mostly a real Chromium engine), the neutral tail is still anonymous.
+        Order is a signal too: <span class="mono">h2, http/1.1</span> and
+        <span class="mono">http/1.1, h2</span> are different clients.
       </p>
       <a class="link mono" :href="`https://${SITE}`" target="_blank" rel="noopener">{{ SITE }} ↗</a>
     </footer>
@@ -269,7 +357,7 @@ const statTiles = computed(() => {
 }
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 15rem) 1fr 4.5rem;
+  grid-template-columns: minmax(0, 16rem) 1fr 4.5rem;
   align-items: center;
   gap: var(--sp-3);
   padding: 5px var(--sp-2);
@@ -278,6 +366,12 @@ const statTiles = computed(() => {
 }
 .row.hot {
   background: var(--panel-2);
+}
+.idcol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .name {
   font-size: var(--fs-sm);
@@ -291,6 +385,18 @@ const statTiles = computed(() => {
 .row.tail .name {
   color: var(--dim);
 }
+/* Who the offer resolves to, and how much of it is named. */
+.cap {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cap.none {
+  color: var(--faint);
+  font-style: italic;
+}
 .flag {
   font-family: var(--font-sans);
   font-size: var(--fs-xs);
@@ -303,15 +409,27 @@ const statTiles = computed(() => {
   border-radius: 3px;
   overflow: hidden;
 }
-/* One fill, one hue: length is the magnitude, not colour. Rounded data-end. */
-.fill {
+/* Bar length = the offer's share of the corpus. Inside it, a stacked split by
+   client: amber runs are named, the neutral tail is anonymous. */
+.fillwrap {
+  display: flex;
   height: 100%;
-  background: var(--amber);
-  border-radius: 0 3px 3px 0;
+  border-radius: 3px;
+  overflow: hidden;
   transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.row.tail .fill {
-  background: var(--faint);
+/* Hairline between neighbours, matched to the page surface. A named run keeps a
+   floor width so a sliver client stays visible; the caption gives the true %. */
+.seg {
+  min-width: 1px;
+  box-shadow: inset -1px 0 0 var(--bg);
+  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.seg:not(.anon) {
+  min-width: 3px;
+}
+.seg:last-child {
+  box-shadow: none;
 }
 .val {
   text-align: right;
@@ -322,7 +440,7 @@ const statTiles = computed(() => {
 .tip {
   position: absolute;
   top: -6px;
-  left: 15.5rem;
+  left: 16.5rem;
   transform: translateY(-100%);
   background: var(--text);
   color: var(--bg);
@@ -361,7 +479,7 @@ const statTiles = computed(() => {
 
 @media (max-width: 34rem) {
   .row {
-    grid-template-columns: minmax(0, 9rem) 1fr 3.5rem;
+    grid-template-columns: minmax(0, 11rem) 1fr 3.5rem;
   }
   .tip {
     left: 0;
