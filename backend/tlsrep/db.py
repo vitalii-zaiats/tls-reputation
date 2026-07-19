@@ -97,6 +97,39 @@ UPDATE fingerprints f
 """
 
 
+# The same entropy, computed the other way round: over the distribution of
+# fingerprints that reached each domain, rather than domains reached by each
+# fingerprint.
+_REFRESH_SNI_METRICS = """
+WITH d AS (
+    SELECT sni,
+           count::float AS c,
+           sum(count) OVER (PARTITION BY sni)::float AS total
+      FROM observations
+     WHERE sni = ANY($1::text[])
+), e AS (
+    SELECT sni,
+           count(*) AS n,
+           sum(c) AS observations,
+           -sum((c / total) * ln(c / total)) AS entropy
+      FROM d
+     WHERE c > 0 AND total > 0
+     GROUP BY sni
+)
+INSERT INTO snis (sni, observations, unique_fingerprints, spread)
+SELECT e.sni,
+       e.observations::bigint,
+       e.n,
+       CASE WHEN e.n < 2 THEN 0 ELSE (e.entropy / ln(e.n))::real END
+  FROM e
+ON CONFLICT (sni) DO UPDATE
+    SET observations        = EXCLUDED.observations,
+        unique_fingerprints = EXCLUDED.unique_fingerprints,
+        spread              = EXCLUDED.spread,
+        last_seen           = now()
+"""
+
+
 async def record_batch(records: list[dict]) -> int:
     """Fold a batch of parsed ClientHellos into the counters.
 
@@ -105,6 +138,7 @@ async def record_batch(records: list[dict]) -> int:
     """
     written = 0
     touched: list[int] = []
+    touched_snis: set[str] = set()
     async with pool().acquire() as conn, conn.transaction():
         for rec in records:
             fp_id = await conn.fetchval(
@@ -125,10 +159,13 @@ async def record_batch(records: list[dict]) -> int:
             touched.append(fp_id)
             for sni, count in rec["snis"].items():
                 await conn.execute(_UPSERT_OBSERVATION, fp_id, sni, count)
+                touched_snis.add(sni)
             written += rec["count"]
 
         if touched:
             await conn.execute(_REFRESH_METRICS, touched)
+        if touched_snis:
+            await conn.execute(_REFRESH_SNI_METRICS, list(touched_snis))
     return written
 
 
@@ -192,9 +229,9 @@ async def top_snis(
 async def sni_detail(sni: str, limit: int, offset: int) -> dict:
     async with pool().acquire() as conn:
         totals = await conn.fetchrow(
-            "SELECT coalesce(sum(count), 0) AS observations,"
-            "       count(*) AS unique_fingerprints"
-            " FROM observations WHERE sni = $1",
+            "SELECT observations, unique_fingerprints, spread,"
+            "       first_seen, last_seen"
+            " FROM snis WHERE sni = $1",
             sni,
         )
         rows = await conn.fetch(
@@ -234,17 +271,28 @@ async def list_fingerprints(
     return rows, total
 
 
-async def list_snis(limit: int, offset: int) -> tuple[list[asyncpg.Record], int]:
+_SNI_SORTS = {
+    "observations": "observations DESC",
+    "unique_fingerprints": "unique_fingerprints DESC",
+    "spread": "spread DESC, observations DESC",
+    "last_seen": "last_seen DESC",
+}
+SNI_SORT_KEYS = tuple(_SNI_SORTS)
+
+
+async def list_snis(
+    sort: str, limit: int, offset: int
+) -> tuple[list[asyncpg.Record], int]:
+    order = _SNI_SORTS.get(sort, _SNI_SORTS["observations"])
     async with pool().acquire() as conn:
         rows = await conn.fetch(
-            "SELECT sni, sum(count) AS observations,"
-            "       count(*) AS unique_fingerprints"
-            " FROM observations GROUP BY sni"
-            " ORDER BY observations DESC LIMIT $1 OFFSET $2",
+            "SELECT sni, observations, unique_fingerprints, spread,"
+            "       first_seen, last_seen"
+            f" FROM snis ORDER BY {order} LIMIT $1 OFFSET $2",
             limit,
             offset,
         )
-        total = await conn.fetchval("SELECT count(DISTINCT sni) FROM observations")
+        total = await conn.fetchval("SELECT count(*) FROM snis")
     return rows, total
 
 
@@ -257,7 +305,7 @@ async def stats() -> dict:
             "       max(last_seen)  AS last_seen"
             " FROM fingerprints"
         )
-        snis = await conn.fetchval("SELECT count(DISTINCT sni) FROM observations")
+        snis = await conn.fetchval("SELECT count(*) FROM snis")
     return {**dict(row), "snis": snis}
 
 

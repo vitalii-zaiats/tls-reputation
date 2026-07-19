@@ -114,11 +114,9 @@ async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
     """
     result = await db.sni_detail(value, limit, offset)
     totals = result["totals"]
-    if totals["unique_fingerprints"] == 0:
+    if totals is None or totals["unique_fingerprints"] == 0:
         return None
 
-    # asyncpg returns Decimal for SUM over a bigint; without the cast these
-    # serialise as JSON strings.
     observations = int(totals["observations"])
     divisor = observations or 1
 
@@ -126,6 +124,14 @@ async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
         "sni": value,
         "observations": observations,
         "unique_fingerprints": totals["unique_fingerprints"],
+        # Entropy over the fingerprints reaching this domain, not over the
+        # domains a fingerprint reaches. High spread means the callers are
+        # many and evenly distributed — normal for a busy site, and the
+        # signature of fingerprint rotation on an endpoint that should see
+        # few distinct client stacks.
+        "spread": round(totals["spread"], 4),
+        "first_seen": _iso(totals["first_seen"]),
+        "last_seen": _iso(totals["last_seen"]),
         "top_fingerprints": [
             {
                 "ja3": r["ja3"],
@@ -216,19 +222,26 @@ async def list_fingerprints(
 
 @router.get("/snis", summary="Browse observed domains")
 async def list_snis(
+    sort: str = Query("observations", pattern="|".join(db.SNI_SORT_KEYS)),
     limit: int = Query(50, ge=1),
     offset: int = Query(0, ge=0),
 ) -> dict:
+    """Domains, sortable by how varied the fingerprints reaching them are.
+
+    `sort=spread` is the interesting one: it ranks domains by how evenly the
+    traffic to them is split across distinct client stacks.
+    """
     limit = min(limit, settings.max_limit)
-    rows, total = await db.list_snis(limit, offset)
+    rows, total = await db.list_snis(sort, limit, offset)
     return {
         "items": [
             {
                 "sni": r["sni"],
-                # SUM over bigint comes back as Decimal; cast so it serialises
-                # as a JSON number rather than a string.
                 "observations": int(r["observations"]),
                 "unique_fingerprints": r["unique_fingerprints"],
+                "spread": round(r["spread"], 4),
+                "first_seen": _iso(r["first_seen"]),
+                "last_seen": _iso(r["last_seen"]),
             }
             for r in rows
         ],

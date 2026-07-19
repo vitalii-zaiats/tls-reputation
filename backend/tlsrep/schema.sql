@@ -54,6 +54,56 @@ CREATE TABLE IF NOT EXISTS observations (
     PRIMARY KEY (fingerprint_id, sni)
 );
 
+-- The mirror of `fingerprints`, keyed the other way. Same reason for existing:
+-- browsing and sorting domains by how varied their callers are must be an
+-- index scan, not an entropy calculation over every observation.
+--
+-- The metric reads inversely to a fingerprint's. There, high spread means one
+-- client stack reaching for many unrelated domains — tooling. Here, high
+-- spread means one domain being reached by many different client stacks in
+-- similar proportions. A popular site legitimately sees a wide mix, so this is
+-- only interesting against volume and against what the endpoint is: a login
+-- form hit by hundreds of evenly-distributed fingerprints is the shape of an
+-- attacker rotating fingerprints, not of a crowd.
+CREATE TABLE IF NOT EXISTS snis (
+    sni                 TEXT         PRIMARY KEY,
+    observations        BIGINT       NOT NULL DEFAULT 0,
+    unique_fingerprints INTEGER      NOT NULL DEFAULT 0,
+    spread              REAL         NOT NULL DEFAULT 0,
+    first_seen          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    last_seen           TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_snis_obs    ON snis (observations DESC);
+CREATE INDEX IF NOT EXISTS idx_snis_uniq   ON snis (unique_fingerprints DESC);
+CREATE INDEX IF NOT EXISTS idx_snis_spread ON snis (spread DESC);
+
+-- Backfill for databases that were collecting before this table existed.
+-- Guarded on the table being empty, so it runs once rather than re-scanning
+-- every observation on every startup. Ingest maintains it from then on.
+INSERT INTO snis (sni, observations, unique_fingerprints, spread)
+WITH d AS (
+    SELECT sni,
+           count::float AS c,
+           sum(count) OVER (PARTITION BY sni)::float AS total
+      FROM observations
+     WHERE NOT EXISTS (SELECT 1 FROM snis)
+), e AS (
+    SELECT sni,
+           count(*) AS n,
+           sum(c) AS observations,
+           -sum((c / total) * ln(c / total)) AS entropy
+      FROM d
+     WHERE c > 0 AND total > 0
+     GROUP BY sni
+)
+SELECT e.sni,
+       e.observations::bigint,
+       e.n,
+       CASE WHEN e.n < 2 THEN 0 ELSE (e.entropy / ln(e.n))::real END
+  FROM e
+ON CONFLICT (sni) DO NOTHING;
+
 -- Lookup by either fingerprint form. ja3 is not unique on its own (two JA4s
 -- can share a JA3), so this is a plain index, not a constraint.
 CREATE INDEX IF NOT EXISTS idx_fingerprints_ja3  ON fingerprints (ja3);

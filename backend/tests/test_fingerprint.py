@@ -154,3 +154,28 @@ class TestSpread:
         browser = spread([5000, 3000, 900, 40])
         scraper = spread([12] * 400)
         assert browser < scraper
+
+
+class TestSniSpread:
+    """The mirror metric: entropy over the fingerprints reaching one domain.
+
+    Same function as a fingerprint's spread, applied to the other axis, so the
+    reference implementation covers both.
+    """
+
+    def test_one_client_stack_scores_zero(self):
+        assert spread([5000]) == 0.0
+
+    def test_ordinary_traffic_sits_in_the_middle(self):
+        # A handful of real client stacks, very unevenly split.
+        assert 0.3 < spread([9000, 4000, 1500, 300, 80, 20]) < 0.8
+
+    def test_fingerprint_rotation_saturates(self):
+        """60 distinct fingerprints across 60 connections — the credential
+        stuffing shape, where the variety itself is the signature."""
+        assert spread([1] * 60) == pytest.approx(1.0)
+
+    def test_rotation_outranks_ordinary_traffic(self):
+        ordinary = spread([9000, 4000, 1500, 300, 80, 20])
+        rotating = spread([1] * 60)
+        assert rotating > ordinary
