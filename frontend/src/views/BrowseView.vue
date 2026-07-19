@@ -268,6 +268,11 @@ function fpKey(row) {
   margin-bottom: var(--sp-3);
 }
 
+.head p {
+  color: var(--dim);
+  margin-bottom: 0;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -280,23 +285,16 @@ function fpKey(row) {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--c-fg-muted);
+  letter-spacing: 0.08em;
+  color: var(--dim);
   /* Keep the two segmented rows left-aligned with each other. */
   min-width: 2.5rem;
 }
 
+/* Rounded chips sit side by side rather than sharing a border. */
 .group {
   display: inline-flex;
-}
-
-/* Collapse the shared 1px borders between segments. */
-.opt + .opt {
-  margin-left: -1px;
-}
-
-.opt[aria-pressed="true"] {
-  position: relative; /* keep the accent border above its neighbours */
-  z-index: 1;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
 }
 </style>

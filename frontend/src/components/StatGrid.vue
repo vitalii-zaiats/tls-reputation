@@ -22,37 +22,34 @@ defineProps({
 </template>
 
 <style scoped>
+/* Separate cards rather than one bordered strip — the corners need the room. */
 .statgrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0;
+  gap: var(--sp-3);
   margin: 0;
-  border: var(--border);
 }
 
 .cell {
-  padding: var(--sp-3) var(--sp-4);
-  border-right: var(--border);
-  border-bottom: var(--border);
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
   min-width: 0;
-}
-
-/* Trailing borders are trimmed by the container's own border. */
-.cell:last-child {
-  border-right: 0;
 }
 
 dt {
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--c-fg-muted);
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  color: var(--dim);
   margin-bottom: var(--sp-2);
 }
 
 dt[title] {
   cursor: help;
-  border-bottom: 1px dotted var(--c-border);
+  border-bottom: 1px dotted var(--line-strong);
   display: inline-block;
 }
 
@@ -62,11 +59,5 @@ dd {
   font-size: var(--fs-md);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-}
-
-@media (max-width: 34rem) {
-  .cell {
-    border-right: 0;
-  }
 }
 </style>

@@ -55,23 +55,28 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Rounded chips can't share borders, so they sit in a track instead. */
 .theme {
   display: inline-flex;
-}
-
-/* Collapse the shared 1px borders between segments. */
-.opt + .opt {
-  margin-left: -1px;
+  gap: 3px;
+  padding: 3px;
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-chip);
 }
 
 .opt {
   padding: var(--sp-1) var(--sp-2);
   font-size: var(--fs-xs);
-  color: var(--c-fg-muted);
+  border-color: transparent;
+  background: none;
+}
+
+.opt:hover:not(:disabled) {
+  border-color: transparent;
 }
 
 .opt[aria-pressed="true"] {
-  position: relative; /* keep the accent border above its neighbours */
-  z-index: 1;
+  border-color: transparent;
 }
 </style>

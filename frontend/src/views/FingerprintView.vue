@@ -184,7 +184,7 @@ const sniColumns = [
         </dl>
 
         <div v-for="sec in helloSections" :key="sec.key" class="hello">
-          <h3>{{ sec.label }} <span class="faint nums">({{ sec.entries.length }})</span></h3>
+          <h3>{{ sec.label }} <span class="muted nums">({{ sec.entries.length }})</span></h3>
           <ul v-if="sec.entries.length" class="entries">
             <li v-for="(entry, i) in sec.entries" :key="`${entry.value}-${i}`">
               <span class="hex">{{ entry.value }}</span>
@@ -251,7 +251,10 @@ const sniColumns = [
   list-style: none;
   margin: 0;
   padding: 0;
-  border: var(--border);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
+  overflow: hidden; /* let the radius clip the first and last rows */
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(22rem, 1fr));
 }
@@ -259,15 +262,15 @@ const sniColumns = [
 .entries li {
   display: flex;
   gap: var(--sp-3);
-  padding: var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  border-bottom: var(--border);
+  border-bottom: var(--border-width) solid var(--line);
   min-width: 0;
 }
 
 .hex {
-  color: var(--c-fg-muted);
+  color: var(--dim);
   flex: none;
   width: 5rem;
   font-variant-numeric: tabular-nums;
@@ -283,7 +286,7 @@ const sniColumns = [
 
 .ident {
   font-size: var(--fs-sm);
-  color: var(--c-fg-muted);
+  color: var(--dim);
   overflow-wrap: anywhere;
   margin-bottom: var(--sp-5);
 }

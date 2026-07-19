@@ -204,7 +204,7 @@ function fpKey(row) {
 
 .ident {
   font-size: var(--fs-sm);
-  color: var(--c-fg-muted);
+  color: var(--dim);
   overflow-wrap: anywhere;
   margin-bottom: var(--sp-5);
 }

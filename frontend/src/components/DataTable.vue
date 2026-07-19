@@ -100,10 +100,23 @@ function ariaSort(col) {
 </template>
 
 <style scoped>
-/* The one place sideways scrolling is allowed. */
+/* Loading / error / empty occupy the same rounded surface the table would, so
+   the page doesn't reflow around them. */
+.datatable > .status {
+  margin: 0;
+  padding: var(--sp-5) var(--sp-4);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+/* The one place sideways scrolling is allowed. The radius clips the header and
+   the last row, so the panel reads as a single rounded surface. */
 .scroll {
   overflow-x: auto;
-  border: var(--border);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
 }
 
 table {
@@ -114,21 +127,22 @@ table {
 
 th,
 td {
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--row-pad) var(--sp-4);
   text-align: left;
   vertical-align: top;
   white-space: nowrap;
-  border-bottom: var(--border);
+  border-bottom: var(--border-width) solid var(--line);
 }
 
 thead th {
   font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--c-fg-muted);
-  background: var(--c-bg-subtle);
-  border-bottom: var(--border-width) solid var(--c-border-strong);
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  color: var(--dim);
+  background: var(--panel-2);
+  border-bottom: var(--border-width) solid var(--line);
   position: sticky;
   top: 0;
 }
@@ -137,8 +151,12 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+tbody tr td {
+  transition: background-color var(--transition);
+}
+
 tbody tr:hover td {
-  background: var(--c-bg-subtle);
+  background: var(--panel-2);
 }
 
 .is-right {
@@ -160,15 +178,16 @@ tbody tr:hover td {
   border: 0;
   padding: 0;
   cursor: pointer;
+  transition: color var(--transition);
 }
 
 .sort:hover {
-  color: var(--c-fg);
+  color: var(--text);
 }
 
 /* The single active state gets the accent. */
 .sort.is-active {
-  color: var(--c-accent);
+  color: var(--link);
 }
 
 .sort.is-active::after {

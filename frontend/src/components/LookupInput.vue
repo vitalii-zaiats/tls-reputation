@@ -87,6 +87,7 @@ async function submit() {
       JA3 hash, JA4 string, or domain
     </label>
     <div class="row">
+      <span class="prompt" aria-hidden="true">&gt;</span>
       <input
         :id="`lookup-${size}`"
         v-model="query"
@@ -118,52 +119,114 @@ async function submit() {
   width: 100%;
 }
 
+/* One rounded field: mono prompt, borderless input, flush amber submit. */
 .row {
   display: flex;
+  align-items: stretch;
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  transition: border-color var(--transition);
+}
+
+.row:hover {
+  border-color: var(--line-strong);
+}
+
+/* The input has no border of its own, so the ring goes on the whole field. */
+.row:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-color: var(--line-strong);
+}
+
+.prompt {
+  flex: none;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--link);
+  padding-left: var(--sp-3);
+  user-select: none;
 }
 
 .field {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
-  color: var(--c-fg);
-  background: var(--c-bg);
-  border: var(--border-width) solid var(--c-border-strong);
-  border-radius: var(--radius);
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: 0;
   padding: var(--sp-2) var(--sp-3);
 }
 
+.field:focus {
+  outline: none; /* the ring is drawn by .row:focus-within */
+}
+
 .field::placeholder {
-  color: var(--c-fg-faint);
+  color: var(--dim);
 }
 
 .submit {
   flex: none;
-  border-color: var(--c-border-strong);
-  margin-left: -1px; /* share the border with the field */
+  margin: -1px; /* sit flush inside the field's own border */
+  color: var(--on-amber);
+  background: var(--amber);
+  border-color: var(--amber);
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  font-weight: 600;
+}
+
+.submit:hover:not(:disabled) {
+  color: var(--on-amber);
+  background: color-mix(in srgb, var(--amber) 85%, var(--text));
+  border-color: color-mix(in srgb, var(--amber) 85%, var(--text));
+}
+
+.submit:disabled {
+  color: var(--on-amber);
+  background: color-mix(in srgb, var(--amber) 55%, var(--panel));
+  border-color: transparent;
+}
+
+.lookup--lg .field,
+.lookup--lg .prompt,
+.lookup--lg .submit {
+  font-size: var(--fs-md);
 }
 
 .lookup--lg .field,
 .lookup--lg .submit {
-  font-size: var(--fs-md);
   padding: var(--sp-3) var(--sp-4);
+}
+
+.lookup--lg .prompt {
+  padding-left: var(--sp-4);
+}
+
+.lookup--sm .field,
+.lookup--sm .prompt,
+.lookup--sm .submit {
+  font-size: var(--fs-sm);
 }
 
 .lookup--sm .field,
 .lookup--sm .submit {
-  font-size: var(--fs-sm);
-  padding: var(--sp-1) var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
 }
 
 .note {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--c-fg-muted);
+  color: var(--dim);
   margin: var(--sp-2) 0 0;
   min-height: 1.2em;
 }
 
 .note--error {
-  color: var(--c-danger);
+  color: var(--red);
 }
 </style>

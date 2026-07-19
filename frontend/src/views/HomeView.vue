@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api } from '../api.js'
 import { formatInt, truncateMiddle } from '../format.js'
@@ -37,6 +37,37 @@ function fpKey(row) {
   return row.ja4 || row.ja3
 }
 
+/**
+ * The "try" chips under the lookup box. Drawn from the corpus this page has
+ * already loaded — never hardcoded — so they always point at something real.
+ */
+const examples = computed(() => {
+  const out = []
+  const fp = promiscuous.value.rows[0]
+  const key = fp ? fpKey(fp) : ''
+  if (key) {
+    out.push({
+      id: key,
+      label: truncateMiddle(key, 12, 6),
+      to: { name: 'fingerprint', params: { hash: key } },
+    })
+  }
+  for (const row of contacted.value.rows.slice(0, 2)) {
+    if (row?.sni) out.push({ id: row.sni, label: row.sni, to: { name: 'sni', params: { name: row.sni } } })
+  }
+  return out
+})
+
+/** Corpus totals, as three cards. No deltas and no series — the API has neither. */
+const statCards = computed(() => {
+  if (!stats.value) return []
+  return [
+    { key: 'fingerprints', label: 'fingerprints', value: formatInt(stats.value.fingerprints) },
+    { key: 'snis', label: 'server names', value: formatInt(stats.value.snis) },
+    { key: 'observations', label: 'observations', value: formatInt(stats.value.observations) },
+  ]
+})
+
 async function load(target, fn) {
   target.value.loading = true
   target.value.error = null
@@ -71,24 +102,37 @@ onMounted(() => {
 <template>
   <div class="home">
     <section class="hero">
+      <p class="eyebrow">public · free · read-only</p>
       <h1>TLS fingerprint reputation</h1>
-      <div class="box">
-        <LookupInput size="lg" autofocus />
-      </div>
-      <p v-if="stats" class="corpus nums">
-        {{ formatInt(stats.fingerprints) }} fingerprints ·
-        {{ formatInt(stats.snis) }} SNIs ·
-        {{ formatInt(stats.observations) }} observations
-      </p>
-    </section>
-
-    <section class="intro">
-      <p>
+      <p class="lead">
         This is a public, free lookup service for TLS client fingerprints. Give it a
         <strong>JA3</strong> hash or a <strong>JA4</strong> string and it will show you which
         server names (SNIs) that fingerprint has been observed reaching, and how often. Give it a
         domain and it will show you which fingerprints reached it.
       </p>
+
+      <div class="box">
+        <LookupInput size="lg" autofocus />
+
+        <p v-if="examples.length" class="tries">
+          <span class="tries-label">try</span>
+          <RouterLink v-for="ex in examples" :key="ex.id" :to="ex.to" class="chip">
+            {{ ex.label }}
+          </RouterLink>
+        </p>
+      </div>
+
+      <dl v-if="statCards.length" class="stats">
+        <!-- dt precedes dd for valid markup and sane reading order; the card
+             flips them visually so the number leads. -->
+        <div v-for="card in statCards" :key="card.key" class="stat">
+          <dt class="stat-label">{{ card.label }}</dt>
+          <dd class="stat-value">{{ card.value }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="intro">
       <p>
         The signal worth reading is <strong>spread</strong>. A real browser on a real machine
         produces a fingerprint that touches a handful of related domains. A scraper, a proxy pool
@@ -189,13 +233,32 @@ onMounted(() => {
 
 <style scoped>
 .hero {
-  padding: var(--sp-8) 0 var(--sp-6);
+  padding: var(--sp-8) 0 var(--sp-7);
   text-align: center;
+  animation: fadeUp 0.5s ease both;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--link);
+  margin: 0 0 var(--sp-4);
+  max-width: none;
 }
 
 h1 {
   font-size: var(--fs-xxl);
-  margin-bottom: var(--sp-6);
+  letter-spacing: -0.02em;
+  margin-bottom: var(--sp-4);
+}
+
+.lead {
+  max-width: 46rem;
+  margin: 0 auto var(--sp-6);
+  color: var(--dim);
+  font-size: var(--fs-md);
 }
 
 .box {
@@ -204,16 +267,88 @@ h1 {
   text-align: left;
 }
 
-.corpus {
-  font-size: var(--fs-xs);
-  color: var(--c-fg-faint);
-  margin: var(--sp-4) 0 0;
+/* Real corpus values, pulled from the tables this page already loads. */
+.tries {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
   max-width: none;
 }
 
+.tries-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--dim);
+  text-decoration: none;
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-chip);
+  padding: 3px var(--sp-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--transition), border-color var(--transition),
+    background-color var(--transition);
+}
+
+.chip:hover {
+  color: var(--link);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  background: var(--amber-soft);
+}
+
+/* Number and label only — the API carries no time series to draw against. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--sp-3);
+  max-width: 44rem;
+  margin: var(--sp-6) auto 0;
+  text-align: left;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column-reverse; /* number above label */
+  gap: var(--sp-2);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+  padding: var(--sp-4);
+}
+
+.stat-value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
 .intro {
-  border-top: var(--border);
-  padding-top: var(--sp-5);
+  border-top: var(--border-width) solid var(--line);
+  padding-top: var(--sp-6);
 }
 
 .links {

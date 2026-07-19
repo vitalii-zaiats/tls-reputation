@@ -58,14 +58,12 @@ function next() {
 
 .range {
   font-size: var(--fs-xs);
-  color: var(--c-fg-muted);
+  color: var(--dim);
 }
 
+/* Rounded chips sit side by side rather than sharing a border. */
 .buttons {
   display: inline-flex;
-}
-
-.buttons .control + .control {
-  margin-left: -1px;
+  gap: var(--sp-2);
 }
 </style>

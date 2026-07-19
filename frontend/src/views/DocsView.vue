@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
 
 .endpoint {
   padding: var(--sp-4) 0;
-  border-bottom: var(--border);
+  border-bottom: var(--border-width) solid var(--line);
 }
 
 .endpoint:last-child {
@@ -300,25 +300,27 @@ onBeforeUnmount(() => {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   font-weight: 600;
+  color: var(--link);
   margin-bottom: var(--sp-2);
   overflow-wrap: anywhere;
 }
 
 .desc {
   font-size: var(--fs-sm);
-  color: var(--c-fg-muted);
+  color: var(--dim);
   margin-bottom: var(--sp-3);
 }
 
 .codeblock {
   position: relative;
-  border: var(--border);
-  background: var(--c-bg-subtle);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
 }
 
 pre {
   margin: 0;
-  padding: var(--sp-3);
+  padding: var(--sp-4);
   padding-right: 5rem;
   overflow-x: auto; /* long curl lines scroll here, not on the page */
   font-size: var(--fs-sm);
@@ -340,7 +342,7 @@ pre {
 
 .fields dd {
   font-family: var(--font-sans);
-  color: var(--c-fg-muted);
+  color: var(--dim);
 }
 
 .links {

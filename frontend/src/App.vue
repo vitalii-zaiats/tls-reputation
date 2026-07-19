@@ -61,22 +61,30 @@ const showHeaderLookup = computed(() => route.name !== 'home')
 .skip:focus {
   left: var(--sp-4);
   top: var(--sp-2);
-  z-index: 10;
-  background: var(--c-bg);
-  border: var(--border-strong);
+  z-index: 30;
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-chip);
   padding: var(--sp-2) var(--sp-3);
   text-decoration: none;
 }
 
+/* Sticky, translucent over whatever scrolls beneath it. */
 .masthead {
-  border-bottom: var(--border-width) solid var(--c-border-strong);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: var(--border-width) solid var(--line);
 }
 
 .masthead-inner,
 .footer-inner {
   max-width: var(--page-max);
   margin: 0 auto;
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-3) var(--page-pad);
 }
 
 .masthead-inner {
@@ -98,18 +106,19 @@ const showHeaderLookup = computed(() => route.name !== 'home')
   font-family: var(--font-mono);
   font-size: var(--fs-base);
   font-weight: 600;
-  color: var(--c-fg);
+  color: var(--text);
   text-decoration: none;
   white-space: nowrap;
+  transition: color var(--transition);
 }
 
 .wordmark:hover {
-  color: var(--c-accent);
+  color: var(--link);
 }
 
 .tagline {
   font-size: var(--fs-xs);
-  color: var(--c-fg-faint);
+  color: var(--dim);
   white-space: nowrap;
 }
 
@@ -121,37 +130,38 @@ const showHeaderLookup = computed(() => route.name !== 'home')
 }
 
 .nav a {
-  color: var(--c-fg-muted);
+  color: var(--dim);
   text-decoration: none;
   padding-bottom: 2px;
   border-bottom: 1px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
 }
 
 .nav a:hover {
-  color: var(--c-fg);
-  border-bottom-color: var(--c-border);
+  color: var(--text);
+  border-bottom-color: var(--line-strong);
 }
 
 /* The one active state, in the one accent colour. */
 .nav a.router-link-active {
-  color: var(--c-accent);
-  border-bottom-color: var(--c-accent);
+  color: var(--link);
+  border-bottom-color: var(--amber);
 }
 
 .header-lookup {
   max-width: var(--page-max);
   margin: 0 auto;
-  padding: 0 var(--sp-4) var(--sp-3);
+  padding: 0 var(--page-pad) var(--sp-3);
 }
 
 .footer {
-  border-top: var(--border);
+  border-top: var(--border-width) solid var(--line);
   margin-top: var(--sp-8);
 }
 
 .line {
   font-size: var(--fs-xs);
-  color: var(--c-fg-muted);
+  color: var(--dim);
   margin: 0 0 var(--sp-1);
   max-width: var(--measure);
 }

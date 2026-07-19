@@ -87,23 +87,24 @@ onBeforeUnmount(() => {
   color: inherit;
   background: none;
   border: 0;
-  border-bottom: 1px dotted var(--c-border);
+  border-bottom: 1px dotted var(--line-strong);
   padding: 0;
   cursor: pointer;
   text-align: left;
   overflow-wrap: anywhere;
+  transition: color var(--transition), border-color var(--transition);
 }
 
 .value:hover {
-  border-bottom-color: var(--c-accent);
-  color: var(--c-accent);
+  border-bottom-color: var(--amber);
+  color: var(--link);
 }
 
 /* Affordance stays quiet until you're near it. */
 .hint {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--c-fg-faint);
+  color: var(--faint);
   white-space: nowrap;
   visibility: hidden;
 }

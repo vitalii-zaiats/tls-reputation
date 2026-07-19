@@ -8,6 +8,29 @@
       name="description"
       content="A free, open lookup service for TLS client fingerprints. Search a JA3 or JA4 fingerprint to see which domains it has been observed reaching, and how widely it spreads."
     />
+    <!--
+      IBM Plex is self-hosted from /fonts (see src/assets/fonts.css). Not from
+      Google's CDN: the site's CSP keeps font-src and style-src at 'self', and a
+      service about what clients leak in transit should not make every visitor
+      announce themselves to a third party in order to read it.
+
+      Preload only the two faces above the fold — the mono regular that every
+      table cell uses, and the sans that carries the headline.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/IBMPlexMono-400-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/IBMPlexSans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <script>
       // Applied before first paint so the page never flashes the wrong theme.
       (function () {
