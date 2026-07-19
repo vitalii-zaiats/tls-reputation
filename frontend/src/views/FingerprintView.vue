@@ -206,6 +206,30 @@ const sniColumns = [
   { key: 'count', label: 'count', align: 'right' },
   { key: 'share', label: 'share', align: 'right' },
 ]
+
+/**
+ * Why this fingerprint has no single JA3. The reason is not the same in every
+ * case: a permuting browser emits a fresh hash per connection, while a JA4
+ * shared by two stable builds simply has two — and saying "permutes" about the
+ * latter would invent a behaviour it does not have.
+ */
+const noJa3Reason = computed(() => {
+  const stability = fp.value?.stability ?? {}
+  const total = fp.value?.ja3_variants?.total ?? 0
+  const listed = 'They are listed below.'
+
+  if (stability.class === 'randomizing') {
+    return `no single JA3 — this client reshuffles its own ClientHello, so it emits a
+      different hash on almost every connection. ${listed}`
+  }
+  if (stability.class === 'multi_build') {
+    return `no single JA3 — ${total} distinct hashes share this JA4, and they repeat rather
+      than churn, which is what a handful of stable builds looks like. None of them is
+      canonical. ${listed}`
+  }
+  return `no single JA3 — more than one hash has been seen for this JA4
+    (${total} so far), and there are too few observations to say why. ${listed}`
+})
 </script>
 
 <template>
@@ -258,12 +282,11 @@ const sniColumns = [
           <dt>JA3</dt>
           <dd class="wrap">
             <CopyText v-if="fp.ja3" :value="fp.ja3" label="JA3 hash" />
-            <!-- Null is the answer, not a gap. A "representative" JA3 for a
-                 permuting client is a value that never matches again. -->
-            <span v-else class="explain">
-              no single JA3 — this client permutes its ClientHello, so it emits a different
-              hash on almost every connection. Every one we have recorded is listed below.
-            </span>
+            <!-- Null is the answer, not a gap. But WHY there is no single JA3
+                 differs by class, and asserting the permuting case for a
+                 client that merely ships two builds would state a cause that
+                 is not there. -->
+            <span v-else class="explain">{{ noJa3Reason }}</span>
           </dd>
 
           <dt>JA3 raw</dt>
