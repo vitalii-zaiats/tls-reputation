@@ -6,9 +6,14 @@
  * length carries magnitude, labels carry identity. No rainbow across the
  * categories; that would be a chart made of noise.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 import { formatInt } from '../format.js'
+import { reportEmbedHeight } from '../embed.js'
+
+// The widget root, measured so the frame can size to it (no inner scrollbar).
+const root = ref(null)
+let stopHeightReport = () => {}
 
 const SITE = 'tls-reputation.com'
 const TOP = 8
@@ -48,7 +53,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // Report height once content has rendered, and on every later size change.
+  stopHeightReport = reportEmbedHeight(() => root.value)
 })
+
+onUnmounted(() => stopHeightReport())
 
 /** A client offering http/1.1 before h2 is not the browser it claims to be. */
 function isReversed(alpn) {
@@ -104,7 +113,7 @@ const statTiles = computed(() => {
 </script>
 
 <template>
-  <div class="widget">
+  <div ref="root" class="widget">
     <header class="head">
       <div class="titles">
         <h1>ALPN offers, live</h1>
@@ -174,7 +183,8 @@ const statTiles = computed(() => {
 <style scoped>
 .widget {
   box-sizing: border-box;
-  min-height: 100vh;
+  /* Content height, not the viewport: the frame is resized to fit this, so it
+     must be exactly as tall as its content and no taller. */
   padding: clamp(16px, 3vw, 26px);
   background: var(--bg);
   color: var(--text);
@@ -325,7 +335,6 @@ const statTiles = computed(() => {
 }
 
 .foot {
-  margin-top: auto;
   padding-top: var(--sp-3);
   border-top: var(--border-width) solid var(--line);
   display: flex;
