@@ -43,19 +43,27 @@
   tags: [setup]
 
 - name: Add the Docker apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ _tlsrep_deb_arch }} signed-by={{ tlsrep_docker_apt_key_path }}]
-      {{ tlsrep_docker_apt_repo_url }} {{ ansible_facts['distribution_release'] }} stable
-    filename: docker
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "{{ tlsrep_docker_apt_repo_url }}"
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: [stable]
+    architectures: "{{ _tlsrep_deb_arch }}"
+    # Scoping the key to this one repository is the point: a key in
+    # trusted.gpg.d would be trusted to sign packages for every other
+    # repository on the host as well.
+    signed_by: "{{ tlsrep_docker_apt_key_path }}"
+    enabled: true
     state: present
-    update_cache: true
+  register: _tlsrep_docker_repo
   tags: [setup]
 
 - name: Install Docker Engine
   ansible.builtin.apt:
     name: "{{ tlsrep_docker_packages + tlsrep_docker_python_packages }}"
     state: present
+    update_cache: "{{ _tlsrep_docker_repo is changed }}"
   tags: [setup]
 
 # --------------------------------------------------------------------------
