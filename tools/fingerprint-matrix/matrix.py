@@ -11,13 +11,23 @@ an anonymous JA4 in the corpus becomes a name: "Python requests on Alpine,"
 
 Cells are language-typed: a client's `lang` must match its environment's, so
 Python clients run on Python images and Node clients on Node images. The
-program is fed to the interpreter over stdin (via a temp file), so there is no
-shell-quoting to get wrong.
+program is fed to the interpreter/compiler over stdin (via a temp file), so
+there is no shell-quoting to get wrong.
+
+Six languages, and the axis that moves a fingerprint differs by language:
+    python  ja4_b tracks the OpenSSL build (base image), ja4_c the library
+    node    bundles its own OpenSSL, so base is irrelevant; Node major sets it
+    go      pure-Go crypto/tls; base irrelevant, Go version + CGO set it
+    java    pure-Java JSSE; base irrelevant, the JDK sets it, libraries collapse
+    dotnet  uses the OS OpenSSL, so base image matters (like python)
+    rust    depends on the TLS backend: native-tls = OpenSSL (base matters),
+            rustls = pure Rust (base irrelevant)
 
 Usage:
-    python matrix.py                 # the starter grid (both languages)
-    python matrix.py --lang node     # one language
-    python matrix.py --full          # every client on every image (slow)
+    python matrix.py                       # the starter grid (all languages)
+    python matrix.py --lang rust           # one language
+    python matrix.py --lang java --lang go # several
+    python matrix.py --full                # every client on every image (slow)
     python matrix.py --jobs 8
 Writes catalog.md and catalog.json next to this file.
 """
@@ -38,6 +48,24 @@ HOST = "tls.peet.ws"
 _PY = 't=%s["tls"]; import sys; sys.stdout.write(t["ja4"]+chr(9)+t["ja3_hash"])'
 _JS_TAIL = "const t=d.tls;process.stdout.write(t.ja4+String.fromCharCode(9)+t.ja3_hash)"
 _JS_ERR = ".catch(function(e){console.error(String(e));process.exit(1)})"
+
+# Java has no standard JSON parser, so pull the two values out by hand. The
+# search token is `key":`, which matches `"ja4":` but not `"ja4_r":` (the char
+# after ja4 there is `_`, not a quote), so a naive scan is safe. chars 9/34/58
+# are TAB / " / : — spelled by code to avoid a nest of escaped quotes.
+_JX = (
+    'static String x(String s,String k){int i=s.indexOf(k+(char)34+(char)58);'
+    "int p=s.indexOf((char)34,i+k.length()+2)+1;"
+    "return s.substring(p,s.indexOf((char)34,p));}"
+)
+_J_TAIL = 'System.out.print(x(b,"ja4")+(char)9+x(b,"ja3_hash"));}' + _JX + "}"
+
+# Rust: fetch to a String, parse with serde_json, print the two fields. Only the
+# fetch line differs between clients (reqwest vs ureq), so the rest is shared.
+_RS_TAIL = (
+    'let v:serde_json::Value=serde_json::from_str(&b).unwrap();let t=&v["tls"];'
+    'print!("{}\\t{}",t["ja4"].as_str().unwrap(),t["ja3_hash"].as_str().unwrap());}'
+)
 
 CLIENTS: dict[str, dict] = {
     # ── Python ──
@@ -95,10 +123,85 @@ func main(){
 	json.Unmarshal(b,&d)
 	os.Stdout.Write([]byte(d.TLS.JA4+"\t"+d.TLS.JA3))
 }'''},
+
+    # ── Java ──  every client here hands the TLS handshake to the JDK's own
+    # JSSE (SunJSSE), which is pure Java. So the JA4 tracks the JDK, is the same
+    # on Debian and Alpine, and OkHttp / Apache collapse onto java.net.http.
+    # OkHttp and Apache need jars on the classpath; `setup` fetches them and
+    # `cp` puts them on the single-file `java Src.java` launch.
+    "java java.net.http (stdlib)": {"lang": "java", "pkg": None,
+        "code": ('import java.net.http.*;import java.net.URI;public class M{'
+                 'public static void main(String[] a)throws Exception{'
+                 'HttpClient c=HttpClient.newHttpClient();'
+                 'String b=c.send(HttpRequest.newBuilder(URI.create("URL")).build(),'
+                 'HttpResponse.BodyHandlers.ofString()).body();' + _J_TAIL).replace("URL", URL)},
+    "java okhttp": {"lang": "java",
+        "pkg": None,
+        "cp": '-cp "/jars/*"',
+        "setup": "mkdir -p /jars && "
+                 "( command -v curl >/dev/null 2>&1 || "
+                 "( (apt-get update -qq && apt-get install -y -qq curl) >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 ) ) && "
+                 "curl -sL -o /jars/okhttp.jar https://repo1.maven.org/maven2/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0.jar && "
+                 "curl -sL -o /jars/okio.jar https://repo1.maven.org/maven2/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0.jar && "
+                 "curl -sL -o /jars/kotlin.jar https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.9.10/kotlin-stdlib-1.9.10.jar",
+        "code": ('import okhttp3.*;public class M{'
+                 'public static void main(String[] a)throws Exception{'
+                 'OkHttpClient c=new OkHttpClient();'
+                 'String b=c.newCall(new Request.Builder().url("URL").build()).execute().body().string();'
+                 + _J_TAIL).replace("URL", URL)},
+    "java apache httpclient5": {"lang": "java",
+        "pkg": None,
+        "cp": '-cp "/jars/*"',
+        "setup": "mkdir -p /jars && "
+                 "( command -v curl >/dev/null 2>&1 || "
+                 "( (apt-get update -qq && apt-get install -y -qq curl) >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 ) ) && "
+                 "curl -sL -o /jars/hc5.jar https://repo1.maven.org/maven2/org/apache/httpcomponents/client5/httpclient5/5.3.1/httpclient5-5.3.1.jar && "
+                 "curl -sL -o /jars/hcore5.jar https://repo1.maven.org/maven2/org/apache/httpcomponents/core5/httpcore5/5.2.4/httpcore5-5.2.4.jar && "
+                 "curl -sL -o /jars/hcore5h2.jar https://repo1.maven.org/maven2/org/apache/httpcomponents/core5/httpcore5-h2/5.2.4/httpcore5-h2-5.2.4.jar && "
+                 "curl -sL -o /jars/slf4j.jar https://repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.13/slf4j-api-2.0.13.jar && "
+                 "curl -sL -o /jars/slf4jn.jar https://repo1.maven.org/maven2/org/slf4j/slf4j-nop/2.0.13/slf4j-nop-2.0.13.jar",
+        "code": ('import org.apache.hc.client5.http.classic.methods.HttpGet;'
+                 'import org.apache.hc.client5.http.impl.classic.*;'
+                 'import org.apache.hc.core5.http.io.entity.EntityUtils;public class M{'
+                 'public static void main(String[] a)throws Exception{'
+                 'CloseableHttpClient c=HttpClients.createDefault();'
+                 'String b=c.execute(new HttpGet("URL"),r->EntityUtils.toString(r.getEntity()));'
+                 + _J_TAIL).replace("URL", URL)},
+
+    # ── C# / .NET ──  HttpClient (SocketsHttpHandler) drives the handshake
+    # through libSystem.Security.Cryptography.Native.OpenSsl — the OS OpenSSL.
+    # So, like Python, the JA4 shifts with the base image's OpenSSL, and the
+    # .NET major sets the client's own preferences on top.
+    "dotnet HttpClient (stdlib)": {"lang": "dotnet", "pkg": None,
+        "code": ('using System.Text.Json;'
+                 'var http=new System.Net.Http.HttpClient();'
+                 'var s=await http.GetStringAsync("URL");'
+                 'using var doc=JsonDocument.Parse(s);var t=doc.RootElement.GetProperty("tls");'
+                 'System.Console.Write(t.GetProperty("ja4").GetString()+"\\t"+t.GetProperty("ja3_hash").GetString());'
+                 ).replace("URL", URL)},
+
+    # ── Rust ──  the finding is the TLS backend, not the base image. reqwest's
+    # default `native-tls` is OpenSSL on Linux (base matters); its `rustls-tls`
+    # feature is pure Rust (base irrelevant). ureq is rustls-only. `pkg` is the
+    # exact reqwest/ureq dependency line dropped into Cargo.toml.
+    "rust reqwest (native-tls)": {"lang": "rust",
+        "pkg": 'reqwest = { version = "0.12", features = ["blocking"] }',
+        "code": ('fn main(){let b=reqwest::blocking::get("URL").unwrap().text().unwrap();'
+                 + _RS_TAIL).replace("URL", URL)},
+    "rust reqwest (rustls)": {"lang": "rust",
+        "pkg": 'reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }',
+        "code": ('fn main(){let b=reqwest::blocking::get("URL").unwrap().text().unwrap();'
+                 + _RS_TAIL).replace("URL", URL)},
+    "rust ureq (rustls)": {"lang": "rust",
+        "pkg": 'ureq = "2"',
+        "code": ('fn main(){let b=ureq::get("URL").call().unwrap().into_string().unwrap();'
+                 + _RS_TAIL).replace("URL", URL)},
 }
 
 # Each environment: the language it provides, an optional bootstrap to install
-# the runtime, how to install a package, and how to run the temp program.
+# OS packages, env vars (exported once, so they reach both install and run), how
+# to install a package, and how to run the program. `{pkg}` in install and
+# `{cp}` in run are substituted per client.
 ENVIRONMENTS: dict[str, dict] = {
     "python:3.9-slim": {"lang": "python", "install": "pip install -q {pkg}", "prog": "/p.py", "run": "python /p.py"},
     "python:3.11-slim": {"lang": "python", "install": "pip install -q {pkg}", "prog": "/p.py", "run": "python /p.py"},
@@ -128,6 +231,49 @@ ENVIRONMENTS: dict[str, dict] = {
     "golang:1.22": {"lang": "go", "env": "GOCACHE=/tmp/gc GO111MODULE=off", "prog": "/tmp/m.go", "run": "go run /tmp/m.go"},
     "golang:1.23": {"lang": "go", "env": "GOCACHE=/tmp/gc GO111MODULE=off", "prog": "/tmp/m.go", "run": "go run /tmp/m.go"},
     "golang:1.22-alpine": {"lang": "go", "env": "GOCACHE=/tmp/gc GO111MODULE=off", "prog": "/tmp/m.go", "run": "go run /tmp/m.go"},
+
+    # Java: single-file source launch (JEP 330) compiles and runs M.java in one
+    # JVM, honouring {cp}. No install; jars (if any) come from the client setup.
+    "eclipse-temurin:11": {"lang": "java", "prog": "/M.java", "run": "java {cp} /M.java"},
+    "eclipse-temurin:17": {"lang": "java", "prog": "/M.java", "run": "java {cp} /M.java"},
+    "eclipse-temurin:21": {"lang": "java", "prog": "/M.java", "run": "java {cp} /M.java"},
+    "eclipse-temurin:21-alpine": {"lang": "java", "prog": "/M.java", "run": "java {cp} /M.java"},
+
+    # .NET: scaffold a console project, overwrite Program.cs, build to /out and
+    # run the DLL directly so only the program's stdout reaches us. HOME/NuGet
+    # caches point at /tmp so the SDK has somewhere writable.
+    "mcr.microsoft.com/dotnet/sdk:6.0": {"lang": "dotnet",
+        "env": "HOME=/tmp NUGET_PACKAGES=/tmp/nuget DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/tmp",
+        "scaffold": "dotnet new console -o /app", "prog": "/app/Program.cs",
+        "run": "cd /app && dotnet build -c Release -v q --nologo -o /out >/dev/null 2>&1 && dotnet /out/app.dll"},
+    "mcr.microsoft.com/dotnet/sdk:8.0": {"lang": "dotnet",
+        "env": "HOME=/tmp NUGET_PACKAGES=/tmp/nuget DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/tmp",
+        "scaffold": "dotnet new console -o /app", "prog": "/app/Program.cs",
+        "run": "cd /app && dotnet build -c Release -v q --nologo -o /out >/dev/null 2>&1 && dotnet /out/app.dll"},
+    "mcr.microsoft.com/dotnet/sdk:9.0": {"lang": "dotnet",
+        "env": "HOME=/tmp NUGET_PACKAGES=/tmp/nuget DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/tmp",
+        "scaffold": "dotnet new console -o /app", "prog": "/app/Program.cs",
+        "run": "cd /app && dotnet build -c Release -v q --nologo -o /out >/dev/null 2>&1 && dotnet /out/app.dll"},
+    "mcr.microsoft.com/dotnet/sdk:8.0-alpine": {"lang": "dotnet",
+        "env": "HOME=/tmp NUGET_PACKAGES=/tmp/nuget DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_CLI_HOME=/tmp",
+        "scaffold": "dotnet new console -o /app", "prog": "/app/Program.cs",
+        "run": "cd /app && dotnet build -c Release -v q --nologo -o /out >/dev/null 2>&1 && dotnet /out/app.dll"},
+
+    # Rust: scaffold a crate, drop the client's dependency line into Cargo.toml,
+    # overwrite src/main.rs, and `cargo run`. native-tls needs OpenSSL headers,
+    # so the Debian base gets libssl-dev and the Alpine base the static openssl.
+    "rust:1-slim": {"lang": "rust", "env": "CARGO_HOME=/tmp/cargo",
+        "bootstrap": "apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev ca-certificates",
+        "scaffold": "cargo new -q /app --name probe && "
+                   "printf '[package]\\nname=\"probe\"\\nversion=\"0.0.0\"\\nedition=\"2021\"\\n"
+                   "[dependencies]\\n%s\\nserde_json=\"1\"\\n' '{pkg}' > /app/Cargo.toml",
+        "prog": "/app/src/main.rs", "run": "cd /app && cargo run -q"},
+    "rust:1-alpine": {"lang": "rust", "env": "CARGO_HOME=/tmp/cargo",
+        "bootstrap": "apk add --no-cache openssl-dev openssl-libs-static pkgconfig musl-dev",
+        "scaffold": "cargo new -q /app --name probe && "
+                   "printf '[package]\\nname=\"probe\"\\nversion=\"0.0.0\"\\nedition=\"2021\"\\n"
+                   "[dependencies]\\n%s\\nserde_json=\"1\"\\n' '{pkg}' > /app/Cargo.toml",
+        "prog": "/app/src/main.rs", "run": "cd /app && cargo run -q"},
 }
 
 STARTER = {
@@ -143,20 +289,50 @@ STARTER = {
         "clients": ["go net/http (stdlib)"],
         "images": ["golang:1.20", "golang:1.22", "golang:1.23", "golang:1.22-alpine"],
     },
+    "java": {
+        "clients": ["java java.net.http (stdlib)", "java okhttp", "java apache httpclient5"],
+        "images": ["eclipse-temurin:11", "eclipse-temurin:17", "eclipse-temurin:21", "eclipse-temurin:21-alpine"],
+    },
+    "dotnet": {
+        "clients": ["dotnet HttpClient (stdlib)"],
+        "images": ["mcr.microsoft.com/dotnet/sdk:6.0", "mcr.microsoft.com/dotnet/sdk:8.0",
+                   "mcr.microsoft.com/dotnet/sdk:9.0", "mcr.microsoft.com/dotnet/sdk:8.0-alpine"],
+    },
+    "rust": {
+        "clients": ["rust reqwest (native-tls)", "rust reqwest (rustls)", "rust ureq (rustls)"],
+        "images": ["rust:1-slim", "rust:1-alpine"],
+    },
 }
+
+LANGS = ["python", "node", "go", "java", "dotnet", "rust"]
 
 
 def run_cell(client: str, image: str, timeout: int) -> dict:
     c, e = CLIENTS[client], ENVIRONMENTS[image]
     steps: list[str] = []
+    # One export up front. Every step shares the one `sh -c`, so this reaches
+    # both the install (e.g. `dotnet new` wanting a writable HOME) and the run.
+    if e.get("env"):
+        steps.append("export " + e["env"])
     if e.get("bootstrap"):
-        steps.append(e["bootstrap"] + " >/dev/null 2>&1")
+        steps.append("{ " + e["bootstrap"] + " ; } >/dev/null 2>&1")
     if e.get("workdir"):
         steps.append("cd " + e["workdir"])
-    if c["pkg"]:
-        steps.append(e["install"].format(pkg=c["pkg"]) + " >/dev/null 2>&1")
+    if c.get("setup"):
+        steps.append("{ " + c["setup"] + " ; } >/dev/null 2>&1")
+    # A scaffold (a compiled language's empty project) always runs; an install
+    # (pip/npm) only when the client actually names a package, so stdlib clients
+    # skip it. Both take {pkg} by str.replace, not str.format — a Cargo.toml
+    # dependency line is full of the braces str.format would choke on.
+    # Wrapped in a brace group so the quieting redirect is the group default and
+    # does NOT clobber an inner one — a scaffold may end in `printf ... > f`, and
+    # a bare trailing `>/dev/null` would win the fd and truncate f to empty.
+    if e.get("scaffold"):
+        steps.append("{ " + e["scaffold"].replace("{pkg}", c.get("pkg") or "") + " ; } >/dev/null 2>&1")
+    if c.get("pkg") and e.get("install"):
+        steps.append("{ " + e["install"].replace("{pkg}", c["pkg"]) + " ; } >/dev/null 2>&1")
     steps.append("cat > " + e["prog"])
-    steps.append((e["env"] + " " if e.get("env") else "") + e["run"])
+    steps.append(e["run"].replace("{cp}", c.get("cp", "")))
     shell = " && ".join(steps)
     try:
         proc = subprocess.run(
@@ -175,21 +351,21 @@ def run_cell(client: str, image: str, timeout: int) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lang", choices=["python", "node", "go"], help="one language only")
+    parser.add_argument("--lang", choices=LANGS, action="append", help="only this language (repeatable)")
     parser.add_argument("--full", action="store_true", help="every client on every image")
     parser.add_argument("--jobs", type=int, default=6)
-    parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--timeout", type=int, default=600)
     args = parser.parse_args()
 
-    langs = [args.lang] if args.lang else ["python", "node", "go"]
+    langs = args.lang or LANGS
     cells: list[tuple[str, str]] = []
     for lang in langs:
         if args.full:
             clients = [c for c, v in CLIENTS.items() if v["lang"] == lang]
             images = [i for i, v in ENVIRONMENTS.items() if v["lang"] == lang]
+            cells += [(c, i) for i in images for c in clients]
         else:
-            clients, images = STARTER[lang]["clients"], STARTER[lang]["images"]
-        cells += [(c, i) for i in images for c in clients]
+            cells += [(c, i) for i in STARTER[lang]["images"] for c in STARTER[lang]["clients"]]
 
     print(f"running {len(cells)} cells, {args.jobs} at a time\n")
     results = []
@@ -199,7 +375,7 @@ def main() -> None:
             r = fut.result()
             results.append(r)
             mark = r.get("ja4") or f"— {r.get('error')}"
-            print(f"  {r['image']:24s} {r['client']:24s} {mark}")
+            print(f"  {r['image']:44s} {r['client']:30s} {mark}")
 
     results.sort(key=lambda r: (r["image"], r["client"]))
     here = pathlib.Path(__file__).parent
