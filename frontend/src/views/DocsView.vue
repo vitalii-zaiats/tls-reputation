@@ -184,7 +184,8 @@ onBeforeUnmount(() => {
       <p>
         A fingerprint identifies TLS client software, not a person. Nothing here is a verdict:
         absence from the corpus does not make a client trustworthy, and presence does not make it
-        hostile. Read the spread, and weigh it against volume.
+        hostile. Read <code>spread</code> and <code>stability</code> together, and weigh both
+        against volume.
       </p>
     </section>
 
@@ -221,11 +222,52 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <dl class="kv fields">
+        <dt>ja4</dt>
+        <dd>The identity. Always present, and the only field you can key on.</dd>
+        <dt>ja3, ja3_raw</dt>
+        <dd>
+          <strong><code>null</code> whenever more than one JA3 has been seen</strong> under this
+          JA4 — which is the common case, not the exception. Guard for it at every render site.
+          A representative JA3 for a permuting client is a value that will never match again, so
+          the API returns nothing rather than something misleading. The full list is in
+          <code>ja3_variants</code>.
+        </dd>
         <dt>spread</dt>
         <dd>
           Normalised Shannon entropy of the SNI distribution, 0..1. 0 = always the same domain,
-          1 = evenly spread across many unrelated domains. High spread on a high-volume
-          fingerprint indicates tooling, not a browser. On low-volume fingerprints it is noise.
+          1 = evenly spread across many unrelated domains. It measures reach, not intent — see
+          below. On low-volume fingerprints it is noise.
+        </dd>
+        <dt>stability</dt>
+        <dd>
+          Whether the stack randomises its own fingerprint. Same object shape from
+          <code>/ja3</code>, <code>/ja4</code> and <code>/fingerprints</code>. See below.
+        </dd>
+        <dt>ja3_variants</dt>
+        <dd>
+          <code>{ total, capped, items }</code>. Each item is
+          <code>{ ja3, ja3_raw, observations }</code>, busiest first, and
+          <code>items</code> is truncated — <code>total</code> is the count. When
+          <code>capped</code> is true the corpus has stopped recording new variants for this
+          fingerprint, so <code>total</code> is a floor rather than a total.
+        </dd>
+        <dt>matched_ja3</dt>
+        <dd>
+          Present only on the <code>/ja3</code> route. <code>canonical</code> is the JA4 the hash
+          resolved to when the resolution was unambiguous, and <code>null</code> when it was not
+          — in which case <code>also_seen_under</code> lists the other JA4s that have emitted the
+          same JA3, and the object you were served is merely the busiest of them.
+        </dd>
+        <dt>extensions</dt>
+        <dd>
+          Sorted, and flagged as such by <code>extensions_sorted</code>. Do not present it as the
+          client's own order: under one JA4 the wire order varies from connection to connection,
+          and that variation is what <code>ja3_variants</code> records.
+        </dd>
+        <dt>alpn</dt>
+        <dd>
+          The offered protocols in the client's order of preference. Never sorted; the order
+          distinguishes clients that JA4 cannot. Empty array when none were offered.
         </dd>
         <dt>share</dt>
         <dd>Fraction of the parent's total observations, 0..1.</dd>
@@ -233,6 +275,140 @@ onBeforeUnmount(() => {
         <dd>Truncated to the most contacted names; <code>unique_snis</code> gives the true count.</dd>
         <dt>timestamps</dt>
         <dd>ISO 8601, always UTC.</dd>
+      </dl>
+
+      <h3 class="sub">matched_ja3, on the /ja3 route only</h3>
+      <div class="codeblock">
+        <pre><code>{{ matchedExample }}</code></pre>
+        <button
+          type="button"
+          class="control copy"
+          aria-label="Copy the matched_ja3 example"
+          @click="copy('matched', matchedExample)"
+        >
+          {{ copied === 'matched' ? 'copied' : copied === 'matched:failed' ? 'failed' : 'copy' }}
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Identity is JA4</h2>
+      <p>
+        Fingerprints used to be keyed on the pair (JA3, JA4). That was wrong. Chrome has permuted
+        its ClientHello extension order on every connection since version 110, so JA3 changes
+        every time while JA4 — which sorts the extension list before hashing — stays put. That is
+        precisely what JA4 was designed for. Measured on live traffic: 162 observations of one
+        domain produced 162 distinct JA3 values and 2 distinct JA4 values. Keying on JA3 shattered
+        one browser into one row per connection.
+      </p>
+      <p>
+        JA3 is now demoted to a variant under its JA4. It is still a first-class lookup — the
+        <code>/ja3</code> route resolves a hash to the client that emitted it — but it is no
+        longer an identity, and <code>ja3</code> is <code>null</code> on any fingerprint that has
+        emitted more than one.
+      </p>
+      <p>
+        <strong><code>also_seen_as</code> has been removed.</strong> The equivalent information —
+        other JA4s that have also emitted the JA3 you looked up — now lives in
+        <code>matched_ja3.also_seen_under</code>, and appears only on the <code>/ja3</code> route.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Stability</h2>
+      <p>
+        The second axis, orthogonal to spread. Spread says how widely a client stack roams;
+        stability says whether the stack randomises its own fingerprint. That is a property of
+        software, which is the only kind of claim an identity-free corpus can support.
+      </p>
+      <dl class="kv fields">
+        <dt>fixed</dt>
+        <dd>
+          One JA3 across every observed connection: a deterministic stack. Libraries and
+          command-line clients look like this.
+        </dd>
+        <dt>randomizing</dt>
+        <dd>
+          More than half of connections presented a JA3 never seen before under this JA4. Chrome
+          110 and later, and everything built on it.
+        </dd>
+        <dt>multi_build</dt>
+        <dd>
+          Several JA3s, but most of them repeat — a handful of stable builds sharing one JA4
+          rather than per-connection randomisation.
+        </dd>
+        <dt>unknown</dt>
+        <dd>
+          Too few observations to tell a permuting client from a coincidence. Not a finding, an
+          absence of one.
+        </dd>
+        <dt>variants</dt>
+        <dd>
+          Distinct JA3s recorded. When <code>variants_capped</code> is true this is a floor, not a
+          total — render it as <code>128+</code>, never as a bare <code>128</code>.
+        </dd>
+        <dt>novelty</dt>
+        <dd>
+          Fraction of connections that presented a JA3 not previously seen under this JA4, 0..1.
+        </dd>
+        <dt>dominant_variant_share</dt>
+        <dd>
+          Share of connections carried by the single busiest JA3; detail routes only. A high value
+          on a <code>randomizing</code> profile is worth noticing: it is what a deterministic
+          client wearing a browser's JA4 looks like, since tools that reproduce a browser's JA4
+          rarely implement the permutation behind it.
+        </dd>
+        <dt>explanation, note</dt>
+        <dd>
+          Prose, safe to display verbatim. Treat both as optional — do not require them.
+        </dd>
+      </dl>
+      <p>
+        There is no <code>sort=stability</code>, deliberately: it is a class, not a magnitude.
+        Read the two axes together instead. A <code>fixed</code> stack that reaches many unrelated
+        domains is the combination worth opening; <code>randomizing</code> with broad reach is
+        what a popular browser looks like.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>ALPN distribution</h2>
+      <div class="codeblock">
+        <pre><code>{{ alpnExample }}</code></pre>
+        <button
+          type="button"
+          class="control copy"
+          aria-label="Copy the ALPN distribution example"
+          @click="copy('alpn', alpnExample)"
+        >
+          {{ copied === 'alpn' ? 'copied' : copied === 'alpn:failed' ? 'failed' : 'copy' }}
+        </button>
+      </div>
+      <p>
+        Keyed on the offer list <em>in order</em>. The order is never normalised, because it is
+        the signal: a browser offers <code>h2</code> before <code>http/1.1</code>, and a client
+        that lists them the other way round is not the browser it claims to be.
+        <code>["h2","http/1.1"]</code> and <code>["http/1.1","h2"]</code> are therefore two
+        separate items, and merging them would erase the only thing the endpoint is for.
+      </p>
+      <p>
+        JA4 cannot carry this. It keeps only the first and last character of the
+        <em>first</em> offered protocol, so <code>h2</code> and <code>h2, http/1.1</code> reduce
+        to the same two characters and everything after the first protocol is lost.
+      </p>
+      <dl class="kv fields">
+        <dt>label</dt>
+        <dd>
+          The offer list joined with commas, or <code>null</code> when the client offered no ALPN
+          at all. Render that case explicitly rather than as a blank.
+        </dd>
+        <dt>fingerprints</dt>
+        <dd>Distinct fingerprints with this exact offer list.</dd>
+        <dt>observations</dt>
+        <dd>
+          Connections from those fingerprints. The two denominators disagree, and the disagreement
+          is informative: a few library fingerprints can carry a large share of all connections.
+        </dd>
       </dl>
     </section>
 
@@ -258,7 +434,14 @@ onBeforeUnmount(() => {
         <dt>unique_fingerprints</dt>
         <dd>
           True count of distinct fingerprints seen reaching the name;
-          <code>top_fingerprints</code> is truncated to the most frequent.
+          <code>top_fingerprints</code> is truncated to the most frequent. Distinct here means
+          distinct JA4, so a browser that permutes its ClientHello counts once, not once per
+          connection.
+        </dd>
+        <dt>top_fingerprints[].ja3</dt>
+        <dd>
+          Nullable, on the same rule as everywhere else: absent whenever the fingerprint has
+          emitted more than one JA3. <code>ja4</code> is always there.
         </dd>
         <dt>timestamps</dt>
         <dd>ISO 8601, always UTC.</dd>
@@ -274,22 +457,31 @@ onBeforeUnmount(() => {
       <p>
         On a <strong>fingerprint</strong>, spread is entropy over the domains it reaches.
         <code>0</code> is one client that only ever talks to one host; <code>1</code> is one client
-        stack roaming many unrelated domains. High spread on a high-volume fingerprint means
-        tooling, not a browser.
+        stack roaming many unrelated domains.
+      </p>
+      <p>
+        <strong>Spread is not a verdict, and it never was one on its own.</strong> A single JA4
+        aggregates every install of a given build, so a popular browser has high volume, thousands
+        of domains and spread close to <code>1</code> — the same shape a scraper has. This corpus
+        stores no per-connection identity, deliberately: that is what makes it publishable, and it
+        is also why it can never distinguish one scraper reaching 500 domains from 500 people
+        reaching one domain each. Spread is one coordinate. Pair it with
+        <code>stability</code>, which is a claim about software and therefore one the data can
+        actually support.
       </p>
       <p>
         On a <strong>domain</strong>, spread is entropy over the fingerprints that reach it.
         <code>0</code> means essentially one client stack reaches it. The middle of the range,
         roughly <code>0.3</code>–<code>0.7</code>, is what ordinary traffic looks like: a mix of
-        real clients, unevenly distributed. Near <code>1.0</code> means many distinct fingerprints
-        in near-equal proportion — unremarkable on a busy public site, but on a login or API
-        endpoint it is the signature of one actor rotating fingerprints, where the variety itself
-        is the tell.
+        real clients, unevenly distributed. Near <code>1.0</code> means many distinct client stacks
+        in near-equal proportion — unremarkable on a busy public site, and worth a second look on a
+        login or API endpoint, though the corpus cannot tell you whether that variety is a varied
+        audience or one actor cycling through TLS stacks.
       </p>
       <p>
         In both directions the number is meaningless without volume. Always read it against
         <code>observations</code> and the relevant unique count: spread <code>1.0</code> over three
-        connections is noise; spread <code>1.0</code> over sixty thousand is a finding.
+        connections is noise; spread <code>1.0</code> over sixty thousand is worth investigating.
       </p>
       <div class="codeblock">
         <pre><code>{{ spreadCurl }}</code></pre>
@@ -309,8 +501,11 @@ onBeforeUnmount(() => {
       <p>
         Errors use standard status codes with a JSON body of the form
         <code>{"detail": "..."}</code>. <code>404</code> means the value is well-formed but has
-        never been observed — treat it as an answer, not a failure. <code>422</code> means the
-        value is not a valid JA3 hash, JA4 string or hostname.
+        never been observed — treat it as an answer, not a failure. On a JA3 that 404 is
+        especially weak evidence: a permuting client emits a new hash every connection, so look
+        the client up by its JA4 instead. <code>400</code> means the path value is not a valid
+        JA3 hash, JA4 string or hostname; <code>422</code> means a query parameter failed
+        validation.
       </p>
       <p class="links">
         <RouterLink to="/">lookup</RouterLink> ·
@@ -353,6 +548,14 @@ onBeforeUnmount(() => {
   margin-bottom: var(--sp-3);
 }
 
+/* A heading inside a section, one step below the section label. */
+.sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  margin: var(--sp-5) 0 var(--sp-3);
+}
+
 .codeblock {
   position: relative;
   border: var(--border-width) solid var(--line);
@@ -379,7 +582,12 @@ pre {
 
 .fields {
   margin-top: var(--sp-4);
-  grid-template-columns: 8rem minmax(0, 1fr);
+  grid-template-columns: 11rem minmax(0, 1fr);
+}
+
+/* Some field names are long enough to leave the column. */
+.fields dt {
+  overflow-wrap: anywhere;
 }
 
 .fields dd {

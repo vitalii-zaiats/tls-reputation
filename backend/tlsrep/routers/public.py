@@ -136,7 +136,8 @@ def _summary(row) -> dict:
 
 async def _detail(row, matched_ja3: str | None = None) -> dict:
     snis = await db.top_snis(row["id"], settings.top_snis)
-    variants, variant_total, dominant = await db.ja3_variants(row["id"], 20, 0)
+    embedded = 20
+    variants, variant_total, dominant = await db.ja3_variants(row["id"], embedded, 0)
     total = row["observations"] or 1
 
     payload = {
@@ -155,7 +156,13 @@ async def _detail(row, matched_ja3: str | None = None) -> dict:
         "point_formats": [f"0x{v:04x}" for v in row["point_formats"]],
         "ja3_variants": {
             "total": variant_total,
+            # Two different facts, deliberately separate. `capped` means ingest
+            # stopped growing the stored set, so `total` is a floor. `truncated`
+            # means this response carries only the busiest slice of what IS
+            # stored.
             "capped": bool(row["ja3_variants_capped"]),
+            "truncated": variant_total > len(variants),
+            "returned": len(variants),
             "items": [
                 {
                     "ja3": v["ja3"],
@@ -247,6 +254,7 @@ async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
             {
                 "ja3": r["ja3"],
                 "ja4": r["ja4"],
+                "stability": _stability(r),
                 "count": r["count"],
                 "share": round(r["count"] / divisor, 6),
                 "first_seen": _iso(r["first_seen"]),

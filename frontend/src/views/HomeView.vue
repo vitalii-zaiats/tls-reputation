@@ -146,7 +146,9 @@ const alpnRows = computed(() => {
 })
 
 function alpnShare(row) {
-  return alpnBasis.value === 'observations' ? row.share_of_observations : row.share_of_fingerprints
+  const value =
+    alpnBasis.value === 'observations' ? row.share_of_observations : row.share_of_fingerprints
+  return Number.isFinite(value) ? value : 0
 }
 
 async function load(target, fn) {
@@ -251,7 +253,7 @@ onMounted(() => {
       </p>
     </section>
 
-    <section class="section alpn">
+    <section class="section">
       <h2>ALPN offers</h2>
       <p>
         Every ClientHello can advertise which application protocols the client speaks, in the

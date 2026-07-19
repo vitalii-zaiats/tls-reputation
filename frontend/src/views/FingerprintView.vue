@@ -128,6 +128,54 @@ function variantShare(row) {
   return row.observations / total
 }
 
+/**
+ * Assembled here rather than as adjacent `v-if` templates: Vue drops
+ * whitespace-only text between two elements, which would run the sentences
+ * together.
+ */
+const variantNote = computed(() => {
+  const v = variants.value
+  if (!v) return ''
+  const parts = []
+  if (variantItems.value.length < v.total) {
+    parts.push(
+      `Showing the ${formatInt(variantItems.value.length)} busiest of ${variantCount.value}.`,
+    )
+  }
+  if (v.capped) {
+    parts.push(
+      'The corpus stops recording new JA3s for a fingerprint once it has seen enough of them ' +
+        'to classify it, so that figure is a floor, not a total.',
+    )
+  }
+  return parts.join(' ')
+})
+
+/** A deterministic client has exactly one variant, so "one of 1" is avoided. */
+const matchedPhrase = computed(() => {
+  const total = variants.value?.total ?? 0
+  if (total <= 1) {
+    return 'It is the only JA3 this JA4 has ever emitted, and no other JA4 has emitted it.'
+  }
+  return `It is one of ${variantCount.value} JA3s emitted by this JA4, and no other JA4 has emitted it.`
+})
+
+/** Same reason: one string, so the optional clauses keep their spacing. */
+const stabilityNote = computed(() => {
+  const s = fp.value?.stability
+  if (!s) return ''
+  const parts = []
+  if (s.explanation) parts.push(s.explanation)
+  if (s.dominant_variant_share != null) {
+    parts.push(
+      `The busiest single JA3 carries ${formatShare(s.dominant_variant_share)} of this ` +
+        "fingerprint's connections.",
+    )
+  }
+  if (s.note) parts.push(s.note)
+  return parts.join(' ')
+})
+
 /* ---- decoded ClientHello ---- */
 
 const helloSections = computed(() => {
@@ -231,8 +279,7 @@ const sniColumns = [
           <p v-if="fp.matched_ja3.canonical" class="matched-line">
             You looked up the JA3
             <span class="mono">{{ truncateMiddle(fp.matched_ja3.ja3, 12, 6) }}</span
-            >. It is one of {{ variantCount }} JA3s emitted by this JA4, and it is emitted by
-            no other. JA4 is the identity here; JA3 is a variant of it.
+            >. {{ matchedPhrase }} JA4 is the identity here; JA3 is a variant of it.
           </p>
           <template v-else>
             <p class="matched-line">
@@ -275,14 +322,7 @@ const sniColumns = [
              sentence is stated here in the page. -->
         <p v-if="fp.stability" class="footnote">
           <strong>Stability</strong> is the other axis, and unlike spread it is a claim the
-          corpus can support, because it is a property of the software:
-          {{ fp.stability.explanation }}
-          <template v-if="fp.stability.dominant_variant_share !== undefined">
-            The busiest single JA3 carries
-            {{ formatShare(fp.stability.dominant_variant_share) }} of this fingerprint's
-            connections.
-          </template>
-          <template v-if="fp.stability.note">{{ fp.stability.note }}</template>
+          corpus can support, because it is a property of the software: {{ stabilityNote }}
           Read the two together: a stack that never varies its own hello and still reaches many
           unrelated domains is the interesting case. A randomising stack with broad reach is
           usually just a popular browser.
@@ -314,15 +354,8 @@ const sniColumns = [
           <template #cell-share="{ row }">{{ formatShare(variantShare(row)) }}</template>
         </DataTable>
         <p class="footnote">
-          <template v-if="variantItems.length < variants.total">
-            Showing the {{ formatInt(variantItems.length) }} busiest of {{ variantCount }}.
-          </template>
-          <template v-if="variants.capped">
-            The corpus stops recording new JA3s for a fingerprint once it has seen enough of
-            them to classify it, so that figure is a floor, not a total.
-          </template>
-          JA3 hashes the extension list in the order it arrived on the wire; JA4 sorts it
-          first. That single difference is why all of these collapse into one JA4.
+          {{ variantNote }} JA3 hashes the extension list in the order it arrived on the wire;
+          JA4 sorts it first. That single difference is why all of these collapse into one JA4.
         </p>
       </section>
 
@@ -349,8 +382,8 @@ const sniColumns = [
           <p v-else class="status">none advertised.</p>
           <p v-if="sec.sorted" class="footnote">
             Listed in sorted order, which is not the order this client sent them. Under one JA4
-            the wire order varies from connection to connection — that variation is exactly
-            what the JA3 variants above record.
+            the wire order can vary from connection to connection, and JA4 sorts the list before
+            hashing precisely so that it does not matter.
           </p>
         </div>
       </section>

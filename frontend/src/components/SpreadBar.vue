@@ -3,9 +3,14 @@
  * Spread = normalised Shannon entropy of a distribution. For a fingerprint that
  * is its SNI distribution; for a domain it is the mirror — the distribution of
  * fingerprints reaching it. Same bar, so `label` names which one is meant.
- * Rendered as the number plus a plain track — no gradient, no glow. The fill is
- * coloured by the value itself (<0.4 green, <0.7 amber, else red), which is the
- * only place --green and --red are used in the UI.
+ *
+ * Deliberately MONOCHROME. It used to run green -> amber -> red, which encodes
+ * a good-to-bad verdict — and spread is not one. The corpus stores no
+ * per-connection identity, so it cannot tell one scraper reaching 500 domains
+ * from 500 people reaching one each; under the current model a popular browser
+ * merges into a single JA4 and sits at the top of the scale. Painting that red
+ * would assert exactly the claim the rest of the page retracts. Magnitude is
+ * carried by length alone.
  */
 import { computed } from 'vue'
 import { formatSpread } from '../format.js'
@@ -28,13 +33,8 @@ const clamped = computed(() => {
 const pct = computed(() => (clamped.value === null ? 0 : clamped.value * 100))
 const text = computed(() => formatSpread(props.value))
 
-/** Low spread reads as normal, high spread as worth a look. */
-const band = computed(() => {
-  if (clamped.value === null) return 'none'
-  if (clamped.value < 0.4) return 'low'
-  if (clamped.value < 0.7) return 'mid'
-  return 'high'
-})
+/** Only "have we got a value at all" — no severity banding. */
+const band = computed(() => (clamped.value === null ? 'none' : 'set'))
 </script>
 
 <template>
@@ -86,20 +86,15 @@ const band = computed(() => {
   background: var(--bar);
 }
 
-/* The spread scale — the one place --green and --red appear. */
-.is-low {
-  --bar: var(--green);
-}
-.is-mid {
+/* One fill, no severity colour: see the note at the top of this file. */
+.is-set {
   --bar: var(--amber);
 }
-.is-high {
-  --bar: var(--red);
-}
+
 .is-none {
-  --bar: var(--faint);
+  --bar: var(--line);
 }
 
-/* The bar carries the colour; the number stays in --text so it is always
-   legible. --amber and --green do not reach 4.5:1 as small text on light. */
+/* The number stays in --text rather than taking the bar's colour: --amber does
+   not reach 4.5:1 as small text on the light theme. */
 </style>

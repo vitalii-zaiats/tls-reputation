@@ -362,7 +362,9 @@ async def sni_detail(sni: str, limit: int, offset: int) -> dict:
             sni,
         )
         rows = await conn.fetch(
-            "SELECT f.ja3, f.ja4, o.count, o.first_seen, o.last_seen"
+            "SELECT f.ja3, f.ja4, f.observations, f.ja3_variants,"
+            "       f.ja3_variants_capped, f.ja3_novelty,"
+            "       o.count, o.first_seen, o.last_seen"
             " FROM observations o JOIN fingerprints f ON f.id = o.fingerprint_id"
             " WHERE o.sni = $1 ORDER BY o.count DESC LIMIT $2 OFFSET $3",
             sni,
