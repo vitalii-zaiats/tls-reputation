@@ -1,0 +1,27 @@
+---
+# Base packages installed on every host. Overridable per group.
+tlsrep_common_packages:
+  - ca-certificates
+  - curl
+  - git
+  - rsync
+  - unattended-upgrades
+  - ufw
+  - jq
+
+tlsrep_timezone: Etc/UTC
+
+tlsrep_deploy_user: deploy
+tlsrep_deploy_group: deploy
+
+# Public keys authorised for the deploy user. Populate in group_vars/all.yml
+# with the contents of your laptop's ~/.ssh/id_ed25519.pub. Left empty here so
+# the role never clobbers an existing authorized_keys on a bootstrapped host.
+tlsrep_deploy_authorized_keys: []
+
+# Automatic security updates. Reboots are NOT automatic -- the proxies hold
+# long-lived connections and the app host should be rebooted deliberately.
+tlsrep_unattended_reboot: false
+
+tlsrep_config_dir: /etc/tls-reputation
+tlsrep_install_root: /opt/tls-reputation

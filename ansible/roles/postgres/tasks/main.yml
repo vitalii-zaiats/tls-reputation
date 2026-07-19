@@ -1,0 +1,109 @@
+---
+# Ubuntu 24.04 (noble) ships PostgreSQL 16 in main, so no PGDG repo needed.
+
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ tlsrep_pg_version }}"
+      - "postgresql-client-{{ tlsrep_pg_version }}"
+      # community.postgresql modules run on the target and need a driver.
+      - python3-psycopg2
+    state: present
+  tags: [setup]
+
+- name: Ensure PostgreSQL is enabled and running
+  ansible.builtin.systemd_service:
+    name: postgresql
+    enabled: true
+    state: started
+  tags: [setup]
+
+- name: Apply local PostgreSQL tuning
+  ansible.builtin.template:
+    src: tlsrep.conf.j2
+    dest: "{{ tlsrep_pg_conf_dir }}/conf.d/tlsrep.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Restart postgresql
+  tags: [config]
+
+# The stock postgresql.conf includes conf.d/, but be explicit rather than
+# assume -- a missing include silently drops all of the tuning above.
+- name: Ensure conf.d is included
+  ansible.builtin.lineinfile:
+    path: "{{ tlsrep_pg_conf_dir }}/postgresql.conf"
+    regexp: "^#?include_dir\\s*=\\s*'conf\\.d'"
+    line: "include_dir = 'conf.d'"
+    state: present
+  notify: Restart postgresql
+  tags: [config]
+
+- name: Restrict host-based auth to local connections
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ tlsrep_pg_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reload postgresql
+  tags: [config]
+
+# Apply pending restarts now: the database has to be listening with the final
+# config before the role/database tasks below can connect.
+- name: Apply pending PostgreSQL restarts
+  ansible.builtin.meta: flush_handlers
+  tags: [config, setup]
+
+# --------------------------------------------------------------------------
+# Role + database. These run as the `postgres` OS user over the local unix
+# socket, which is peer-authenticated -- no superuser password anywhere.
+# --------------------------------------------------------------------------
+
+- name: Create the application database role
+  community.postgresql.postgresql_user:
+    name: "{{ tlsrep_db_user }}"
+    password: "{{ tlsrep_db_password }}"
+    role_attr_flags: NOSUPERUSER,NOCREATEDB,NOCREATEROLE
+    state: present
+  become: true
+  become_user: postgres
+  # deploy -> postgres is an unprivileged-to-unprivileged become, which needs
+  # pipelining to avoid world-readable temp files. It is enabled in ansible.cfg.
+  no_log: true
+  tags: [setup, config]
+
+- name: Create the application database
+  community.postgresql.postgresql_db:
+    name: "{{ tlsrep_db_name }}"
+    owner: "{{ tlsrep_db_user }}"
+    encoding: UTF-8
+    lc_collate: C.UTF-8
+    lc_ctype: C.UTF-8
+    template: template0
+    state: present
+  become: true
+  become_user: postgres
+  tags: [setup, config]
+
+- name: Grant the application role all privileges on its database
+  community.postgresql.postgresql_privs:
+    db: "{{ tlsrep_db_name }}"
+    privs: ALL
+    type: database
+    role: "{{ tlsrep_db_user }}"
+    state: present
+  become: true
+  become_user: postgres
+  tags: [setup, config]
+
+# Owning the public schema is what lets the schema migration run
+# CREATE TABLE without a superuser. PG15+ revoked the old default.
+- name: Give the application role ownership of the public schema
+  community.postgresql.postgresql_query:
+    db: "{{ tlsrep_db_name }}"
+    query: "ALTER SCHEMA public OWNER TO {{ tlsrep_db_user }}"
+  become: true
+  become_user: postgres
+  changed_when: false
+  tags: [setup, config]

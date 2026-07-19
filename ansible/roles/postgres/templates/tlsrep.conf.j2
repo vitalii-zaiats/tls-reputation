@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# Dropped into conf.d so the packaged postgresql.conf stays pristine.
+
+listen_addresses = '{{ tlsrep_pg_listen_addresses }}'
+port = {{ tlsrep_pg_port }}
+
+max_connections = {{ tlsrep_pg_max_connections }}
+shared_buffers = {{ tlsrep_pg_shared_buffers }}
+effective_cache_size = {{ tlsrep_pg_effective_cache_size }}
+work_mem = {{ tlsrep_pg_work_mem }}
+maintenance_work_mem = {{ tlsrep_pg_maintenance_work_mem }}
+
+# Ingest is append-heavy and batched; grouping commits cuts fsync pressure a
+# lot. Losing <200ms of fingerprint observations on a crash is acceptable --
+# they are statistical samples, not transactions of record.
+synchronous_commit = off
+wal_compression = on
+
+log_min_duration_statement = {{ tlsrep_pg_log_min_duration }}
+log_line_prefix = '%m [%p] %q%u@%d '
+log_checkpoints = on
+log_connections = off
+log_disconnections = off

@@ -1,0 +1,135 @@
+---
+# --------------------------------------------------------------------------
+# Build locally. Node never touches the target host -- we ship the compiled
+# dist/ and nothing else.
+# --------------------------------------------------------------------------
+
+- name: Check that the frontend sources exist locally
+  ansible.builtin.stat:
+    path: "{{ tlsrep_frontend_local_dir }}/{{ item }}"
+  register: _tlsrep_frontend_sources
+  loop:
+    - package.json
+    - src/main.js
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  tags: [always]
+
+- name: Assert the frontend is buildable
+  ansible.builtin.assert:
+    that: _tlsrep_frontend_sources.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Missing frontend sources in {{ tlsrep_frontend_local_dir }}:
+      {{ _tlsrep_frontend_sources.results | rejectattr('stat.exists')
+         | map(attribute='item') | join(', ') }}.
+      index.html loads /src/main.js, so the build produces an empty bundle
+      without it.
+    quiet: true
+  run_once: true
+  tags: [always]
+
+- name: Check for a lockfile
+  ansible.builtin.stat:
+    path: "{{ tlsrep_frontend_local_dir }}/package-lock.json"
+  register: _tlsrep_frontend_lock
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  tags: [deploy]
+
+- name: Warn when no lockfile is present
+  ansible.builtin.debug:
+    msg: >-
+      No package-lock.json in {{ tlsrep_frontend_local_dir }}; falling back to
+      `npm install`, which does not pin transitive dependencies. Commit a
+      lockfile so builds are reproducible.
+  when: not _tlsrep_frontend_lock.stat.exists
+  run_once: true
+  tags: [deploy]
+
+- name: Install the frontend dependencies
+  ansible.builtin.command:
+    cmd: >-
+      npm {{ 'ci' if (tlsrep_frontend_npm_ci and _tlsrep_frontend_lock.stat.exists) else 'install' }}
+    chdir: "{{ tlsrep_frontend_local_dir }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: tlsrep_frontend_build
+  register: _tlsrep_npm_install
+  changed_when: "'up to date' not in (_tlsrep_npm_install.stdout | default(''))"
+  tags: [deploy]
+
+- name: Build the SPA
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: "{{ tlsrep_frontend_local_dir }}"
+  environment:
+    VITE_API_BASE: "{{ tlsrep_frontend_api_base }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: tlsrep_frontend_build
+  changed_when: true
+  tags: [deploy]
+
+- name: Confirm the build artifact exists
+  ansible.builtin.stat:
+    path: "{{ tlsrep_frontend_dist }}/index.html"
+  register: _tlsrep_dist
+  delegate_to: localhost
+  become: false
+  run_once: true
+  tags: [deploy]
+
+- name: Assert the build produced an artifact
+  ansible.builtin.assert:
+    that: _tlsrep_dist.stat.exists
+    fail_msg: >-
+      {{ tlsrep_frontend_dist }}/index.html was not produced. Run
+      `npm run build` in {{ tlsrep_frontend_local_dir }} to see the error.
+    quiet: true
+  run_once: true
+  # In check mode the build task is skipped, so there may legitimately be no
+  # artifact yet -- don't fail a dry run over it.
+  when: not ansible_check_mode
+  tags: [deploy]
+
+# --------------------------------------------------------------------------
+# Ship it
+# --------------------------------------------------------------------------
+
+- name: Create the web root
+  ansible.builtin.file:
+    path: "{{ tlsrep_frontend_root }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: www-data
+    mode: "0755"
+  tags: [setup, deploy]
+
+- name: Synchronise the built SPA
+  ansible.posix.synchronize:
+    src: "{{ tlsrep_frontend_dist }}/"
+    dest: "{{ tlsrep_frontend_root }}/"
+    archive: true
+    # Vite emits content-hashed filenames; without --delete the web root would
+    # accumulate every bundle ever deployed.
+    delete: true
+    compress: true
+  become: false
+  when: not ansible_check_mode or _tlsrep_dist.stat.exists
+  notify: Reload nginx
+  tags: [deploy]
+
+- name: Enforce permissions on the web root
+  ansible.builtin.file:
+    path: "{{ tlsrep_frontend_root }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: www-data
+    recurse: true
+  tags: [deploy]

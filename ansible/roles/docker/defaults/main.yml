@@ -1,0 +1,68 @@
+---
+# --------------------------------------------------------------------------
+# Docker Engine, from the official apt repository. Ubuntu's own docker.io
+# package lags badly and does not ship buildx/compose plugins, so use upstream.
+# --------------------------------------------------------------------------
+
+tlsrep_docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# community.docker's modules talk to the daemon over its unix socket using a
+# vendored API client, which needs `requests` on the target. It does NOT need
+# the full Docker SDK for Python.
+tlsrep_docker_python_packages:
+  - python3-requests
+
+tlsrep_docker_apt_key_url: https://download.docker.com/linux/ubuntu/gpg
+tlsrep_docker_apt_key_path: /etc/apt/keyrings/docker.asc
+tlsrep_docker_apt_repo_url: https://download.docker.com/linux/ubuntu
+
+# --- daemon configuration --------------------------------------------------
+# Container logs go to json-file and are capped. Without this a chatty
+# container fills the disk: the default json-file driver has no rotation at
+# all, and these are long-lived `unless-stopped` containers.
+tlsrep_docker_log_max_size: 10m
+tlsrep_docker_log_max_file: 3
+
+# The bridge subnet is pinned rather than left to Docker's auto-allocation,
+# because PostgreSQL's pg_hba.conf and listen_addresses have to name it: the
+# backend container reaches the host database across this bridge. If Docker
+# picked the subnet, those two files would be guessing.
+#
+# These three must describe the same network. Kept as literals rather than
+# derived with ipaddr filters so the role needs no netaddr on the control node.
+tlsrep_docker_bridge_ip: "172.17.0.1"          # host address on docker0
+tlsrep_docker_bridge_prefix: 16
+tlsrep_docker_bridge_subnet: "172.17.0.0/16"   # what containers get addresses from
+
+# Keep containers running while dockerd itself restarts (package upgrades,
+# daemon.json changes). Without it every daemon restart is an outage.
+tlsrep_docker_live_restore: true
+
+# --- registry --------------------------------------------------------------
+tlsrep_docker_registry: ghcr.io
+
+# Login is only attempted when a token is actually present. The tls-reputation
+# packages are public, so an anonymous pull works and this is optional — but it
+# must keep working the moment a package is made private, or a token is needed
+# to raise the anonymous pull rate limit.
+tlsrep_ghcr_username: "{{ tlsrep_image_owner | default('') }}"
+tlsrep_ghcr_token: "{{ vault_ghcr_token | default('') }}"
+
+# --- housekeeping ----------------------------------------------------------
+# Pull-based deploys accumulate images: every tag ever deployed stays on disk
+# until something removes it. Untagged layers left behind by a moving `latest`
+# are the worst offender.
+tlsrep_docker_prune_enabled: true
+tlsrep_docker_prune_until: 168h        # keep a week of images for rollback
+tlsrep_docker_prune_weekday: 6         # Saturday
+tlsrep_docker_prune_hour: 4
+
+# Accounts to add to the `docker` group. Membership is equivalent to root on
+# the host (you can bind-mount / into a privileged container), so this is
+# empty by default — Ansible already becomes root and does not need it.
+tlsrep_docker_users: []

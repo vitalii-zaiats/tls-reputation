@@ -1,0 +1,39 @@
+---
+tlsrep_nginx_site: tls-reputation
+tlsrep_frontend_root: /var/www/tls-reputation
+
+# Backend upstream (loopback).
+tlsrep_backend_bind_host: 127.0.0.1
+tlsrep_backend_bind_port: 8000
+
+# --- TLS -------------------------------------------------------------------
+tlsrep_tls_enabled: true
+tlsrep_certbot_email: "admin@{{ tlsrep_domain }}"
+# Extra names on the certificate.
+tlsrep_certbot_domains:
+  - "{{ tlsrep_domain }}"
+  - "www.{{ tlsrep_domain }}"
+tlsrep_certbot_staging: false
+tlsrep_cert_dir: "/etc/letsencrypt/live/{{ tlsrep_domain }}"
+tlsrep_acme_webroot: /var/www/letsencrypt
+
+# HSTS. Two years, with preload. Only turn on preload once you are certain the
+# domain will stay HTTPS-only -- getting off the preload list is slow.
+tlsrep_hsts_max_age: 63072000
+tlsrep_hsts_preload: true
+
+# --- rate limiting ---------------------------------------------------------
+# The public API is free and unauthenticated, so it needs a cap.
+tlsrep_api_rate_limit: "20r/s"
+tlsrep_api_rate_burst: 40
+
+# Ingest is authenticated but internet-facing; a collector sends one batched
+# request per flush interval, so this is generous to them and tight otherwise.
+tlsrep_ingest_rate_limit: "2r/s"
+tlsrep_ingest_rate_burst: 10
+
+
+tlsrep_nginx_client_max_body_size: 2m
+
+# The internal ingest endpoint accepts large batches from the collectors.
+tlsrep_ingest_max_body_size: 32m

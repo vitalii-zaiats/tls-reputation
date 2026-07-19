@@ -1,0 +1,55 @@
+# {{ ansible_managed }}
+# http-context settings. Dropped into conf.d/ so the packaged nginx.conf is
+# left alone.
+
+# Never advertise the version.
+server_tokens off;
+
+client_max_body_size {{ tlsrep_nginx_client_max_body_size }};
+client_body_timeout 15s;
+client_header_timeout 15s;
+
+# --- gzip -----------------------------------------------------------------
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_min_length 1024;
+gzip_types
+    text/plain
+    text/css
+    text/javascript
+    application/javascript
+    application/json
+    application/manifest+json
+    image/svg+xml
+    application/xml
+    application/rss+xml
+    font/woff
+    font/woff2;
+
+# --- rate limiting --------------------------------------------------------
+# Keyed on the client address. The public lookup API is unauthenticated, so
+# this is the only thing standing between it and a scraper.
+limit_req_zone $binary_remote_addr zone=tlsrep_api:10m rate={{ tlsrep_api_rate_limit }};
+# The ingest endpoint is reachable from the internet by necessity — collectors
+# run on residential exit nodes whose addresses can't be allowlisted. The
+# shared key authenticates it, but the key is checked by the application, so
+# an unauthenticated flood still costs the backend work. This bounds that.
+# Collectors send one batched request every flush interval, so a low rate is
+# generous to them and hostile to everyone else.
+limit_req_zone $binary_remote_addr zone=tlsrep_ingest:10m rate={{ tlsrep_ingest_rate_limit }};
+limit_req_status 429;
+limit_conn_zone $binary_remote_addr zone=tlsrep_conn:10m;
+
+# --- proxy defaults -------------------------------------------------------
+proxy_http_version 1.1;
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header Connection        "";
+proxy_connect_timeout 5s;
+proxy_send_timeout 30s;
+proxy_read_timeout 30s;

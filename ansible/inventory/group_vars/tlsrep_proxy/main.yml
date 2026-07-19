@@ -1,0 +1,36 @@
+---
+# ---------------------------------------------------------------------------
+# Collector proxy configuration.
+# Secret (vault_tlsrep_ingest_key) comes from group_vars/tlsrep_proxy/vault.yml
+# and MUST match the value deployed to the backend.
+# ---------------------------------------------------------------------------
+
+tlsrep_proxy_user: tlsrep-proxy
+tlsrep_proxy_group: tlsrep-proxy
+tlsrep_proxy_dir: "{{ tlsrep_install_root }}/proxy"
+tlsrep_proxy_venv: "{{ tlsrep_proxy_dir }}/.venv"
+tlsrep_proxy_env_file: "{{ tlsrep_config_dir }}/proxy.env"
+
+# High, non-standard port. Overridden per host in the inventory so each exit
+# node is distinguishable. Deliberately NOT 80/443 -- these boxes must not look
+# like, or be reachable as, web servers.
+tlsrep_proxy_listen_port: 18443
+
+# Where collected ClientHellos are shipped. This is the internal ingest
+# endpoint, authenticated with the shared ingest key.
+tlsrep_proxy_ingest_url: "https://{{ tlsrep_domain }}/internal/v1/ingest"
+tlsrep_ingest_key: "{{ vault_tlsrep_ingest_key }}"
+
+# Batching: flush when either bound is hit.
+tlsrep_proxy_batch_size: 200
+tlsrep_proxy_flush_interval: 15
+
+# systemd resource limits. The proxy is I/O bound and holds many sockets.
+tlsrep_proxy_memory_max: 512M
+tlsrep_proxy_tasks_max: 4096
+tlsrep_proxy_nofile_limit: 65535
+
+# Extra CIDRs allowed to reach the proxy port. Leave empty to allow any source
+# (the port is unguessable-ish but the ingest key is the real control); set to
+# your provider's ranges to lock it down.
+tlsrep_proxy_allowed_sources: []

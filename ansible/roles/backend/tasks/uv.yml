@@ -1,0 +1,44 @@
+---
+# Installs the `uv` toolchain manager to /usr/local/bin, pinned to
+# tlsrep_uv_version. uv then provides the Python 3.13 runtime itself, which is
+# why no deadsnakes PPA is needed -- noble only ships 3.12.
+
+- name: Determine the uv release architecture
+  ansible.builtin.set_fact:
+    _tlsrep_uv_arch: >-
+      {{ {'x86_64': 'x86_64', 'aarch64': 'aarch64'}[ansible_facts['architecture']] }}
+  tags: [setup]
+
+- name: Check the installed uv version
+  ansible.builtin.command:
+    cmd: /usr/local/bin/uv --version
+  register: _tlsrep_uv_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [setup]
+
+- name: Install uv
+  ansible.builtin.unarchive:
+    src: >-
+      https://github.com/astral-sh/uv/releases/download/{{ tlsrep_uv_version }}/uv-{{ _tlsrep_uv_arch }}-unknown-linux-gnu.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts:
+      # The tarball has a top-level directory; drop it so the binaries land
+      # directly in /usr/local/bin.
+      - --strip-components=1
+    owner: root
+    group: root
+    mode: "0755"
+  when: tlsrep_uv_version not in (_tlsrep_uv_installed.stdout | default(''))
+  tags: [setup]
+
+- name: Install the pinned Python runtime
+  ansible.builtin.command:
+    cmd: /usr/local/bin/uv python install {{ tlsrep_python_version }}
+  environment:
+    UV_PYTHON_INSTALL_DIR: /opt/uv-python
+  register: _tlsrep_uv_python
+  changed_when: "'Installed' in (_tlsrep_uv_python.stderr | default(''))"
+  tags: [setup]

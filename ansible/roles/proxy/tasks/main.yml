@@ -1,0 +1,167 @@
+---
+- name: Check that the proxy sources exist locally
+  ansible.builtin.stat:
+    path: "{{ tlsrep_local_repo }}/proxy/{{ item }}"
+  register: _tlsrep_proxy_sources
+  loop:
+    - pyproject.toml
+    - tlsrep_proxy/main.py
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  tags: [always]
+
+- name: Assert the proxy is deployable
+  ansible.builtin.assert:
+    that: _tlsrep_proxy_sources.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Missing proxy sources in {{ tlsrep_local_repo }}/proxy:
+      {{ _tlsrep_proxy_sources.results | rejectattr('stat.exists')
+         | map(attribute='item') | join(', ') }}.
+    quiet: true
+  run_once: true
+  tags: [always]
+
+- name: Install the uv toolchain
+  ansible.builtin.include_tasks: uv.yml
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Service account and layout
+# --------------------------------------------------------------------------
+
+- name: Create the proxy service group
+  ansible.builtin.group:
+    name: "{{ tlsrep_proxy_group }}"
+    system: true
+    state: present
+  tags: [setup]
+
+- name: Create the proxy service user
+  ansible.builtin.user:
+    name: "{{ tlsrep_proxy_user }}"
+    group: "{{ tlsrep_proxy_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ tlsrep_proxy_dir }}"
+    create_home: false
+    state: present
+  tags: [setup]
+
+- name: Create the proxy application directory
+  ansible.builtin.file:
+    path: "{{ tlsrep_proxy_dir }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: "{{ tlsrep_proxy_group }}"
+    mode: "0750"
+  tags: [setup, deploy]
+
+# --------------------------------------------------------------------------
+# Ship the code
+# --------------------------------------------------------------------------
+
+- name: Synchronise the proxy source
+  ansible.posix.synchronize:
+    src: "{{ tlsrep_local_repo }}/proxy/"
+    dest: "{{ tlsrep_proxy_dir }}/"
+    archive: true
+    delete: true
+    compress: true
+    rsync_opts: "{{ tlsrep_proxy_rsync_excludes | map('regex_replace', '^', '--exclude=') | list }}"
+  become: false
+  notify: Restart tlsrep-proxy
+  tags: [deploy]
+
+- name: Resolve the Python dependencies
+  ansible.builtin.command:
+    cmd: /usr/local/bin/uv sync --frozen --no-dev --python {{ tlsrep_python_version }}
+    chdir: "{{ tlsrep_proxy_dir }}"
+  environment:
+    UV_PYTHON_INSTALL_DIR: /opt/uv-python
+    UV_CACHE_DIR: "{{ tlsrep_proxy_dir }}/.uv-cache"
+  become: false
+  register: _tlsrep_proxy_uv_sync
+  changed_when: >-
+    'Installed' in (_tlsrep_proxy_uv_sync.stderr | default('')) or
+    'Uninstalled' in (_tlsrep_proxy_uv_sync.stderr | default(''))
+  notify: Restart tlsrep-proxy
+  tags: [deploy]
+
+- name: Enforce ownership on the deployed tree
+  ansible.builtin.file:
+    path: "{{ tlsrep_proxy_dir }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: "{{ tlsrep_proxy_group }}"
+    mode: "0750"
+    recurse: true
+  tags: [deploy]
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
+- name: Install the proxy environment file
+  ansible.builtin.template:
+    src: proxy.env.j2
+    dest: "{{ tlsrep_proxy_env_file }}"
+    owner: "{{ tlsrep_proxy_user }}"
+    group: "{{ tlsrep_proxy_group }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart tlsrep-proxy
+  tags: [config, deploy]
+
+- name: Install the proxy systemd unit
+  ansible.builtin.template:
+    src: tlsrep-proxy.service.j2
+    dest: /etc/systemd/system/tlsrep-proxy.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart tlsrep-proxy
+  tags: [config, deploy]
+
+# --------------------------------------------------------------------------
+# Firewall. These are collector nodes, not web servers: the only inbound port
+# beyond SSH is the proxy's own listen port. 80 and 443 are explicitly denied
+# so a stray nginx install can never expose them.
+# --------------------------------------------------------------------------
+
+- name: Allow the proxy listen port from anywhere
+  community.general.ufw:
+    rule: allow
+    port: "{{ tlsrep_proxy_listen_port | string }}"
+    proto: tcp
+  when: tlsrep_proxy_allowed_sources | length == 0
+  tags: [setup, firewall]
+
+- name: Allow the proxy listen port from permitted sources only
+  community.general.ufw:
+    rule: allow
+    port: "{{ tlsrep_proxy_listen_port | string }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ tlsrep_proxy_allowed_sources }}"
+  when: tlsrep_proxy_allowed_sources | length > 0
+  tags: [setup, firewall]
+
+- name: Deny inbound web ports
+  community.general.ufw:
+    rule: deny
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+  tags: [setup, firewall]
+
+- name: Enable the proxy service
+  ansible.builtin.systemd_service:
+    name: tlsrep-proxy
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [deploy]

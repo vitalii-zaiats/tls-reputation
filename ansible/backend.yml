@@ -1,0 +1,25 @@
+---
+# Backend only: PostgreSQL, the FastAPI app, and the nginx vhost in front of
+# it. Safe to run on its own; does not touch the frontend or the proxies.
+#
+#   ansible-playbook backend.yml --ask-vault-pass
+
+- name: Deploy the tls-reputation backend
+  hosts: tlsrep_backend
+  become: true
+
+  roles:
+    - role: common
+      tags: [common, setup]
+
+    - role: postgres
+      tags: [postgres, setup]
+
+    - role: backend
+      tags: [backend, deploy]
+
+    # The vhost serves the SPA and proxies /api/ to the backend. Deploying the
+    # backend alone still needs nginx configured, so the role runs here too --
+    # it is idempotent and will leave an already-deployed dist/ untouched.
+    - role: nginx
+      tags: [nginx, config, tls]

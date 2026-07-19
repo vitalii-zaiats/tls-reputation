@@ -1,0 +1,25 @@
+// {{ ansible_managed }}
+// Security updates only. Feature updates stay manual so a deploy is never
+// surprised by a package version it has not been tested against.
+
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+Unattended-Upgrade::Package-Blacklist {
+    // PostgreSQL restarts on upgrade; do that during a deliberate window.
+    "postgresql-16";
+};
+
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if tlsrep_unattended_reboot else 'false' }}";
+{% if tlsrep_unattended_reboot %}
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+{% endif %}
+Unattended-Upgrade::SyslogEnable "true";

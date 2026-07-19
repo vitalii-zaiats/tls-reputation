@@ -1,0 +1,14 @@
+---
+# Install with:  ansible-galaxy collection install -r requirements.yml
+collections:
+  # postgresql_db / postgresql_user / postgresql_privs
+  - name: community.postgresql
+    version: ">=3.4.0"
+
+  # synchronize (rsync), authorized_key, mount, sysctl
+  - name: ansible.posix
+    version: ">=1.5.4"
+
+  # ufw, timezone helpers, misc
+  - name: community.general
+    version: ">=8.0.0"

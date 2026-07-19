@@ -1,0 +1,22 @@
+---
+# ---------------------------------------------------------------------------
+# TEMPLATE ONLY -- contains no real secrets. Copy, fill in, then encrypt:
+#
+#   cp vault.yml.example vault.yml
+#   $EDITOR vault.yml
+#   ansible-vault encrypt vault.yml
+#
+# Edit later with:  ansible-vault edit inventory/group_vars/tlsrep_backend/vault.yml
+#
+# vault.yml is gitignored. Never commit it decrypted.
+# ---------------------------------------------------------------------------
+
+# Password for the `tlsrep` PostgreSQL role. Generate with:
+#   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+vault_tlsrep_db_password: "CHANGEME-database-password"
+
+# Shared secret the collector proxies present on the internal ingest endpoint.
+# This value MUST be identical to vault_tlsrep_ingest_key in the
+# tlsrep_proxy group vault, or ingest will 401. Generate with:
+#   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+vault_tlsrep_ingest_key: "CHANGEME-ingest-key"

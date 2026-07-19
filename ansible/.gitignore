@@ -1,0 +1,12 @@
+# Real inventory and secrets never get committed.
+inventory/hosts.ini
+inventory/group_vars/*/vault.yml
+!inventory/group_vars/*/vault.yml.example
+
+# Vault password, if you choose to keep it in a file rather than a keychain.
+.vault_pass
+.vault_pass.txt
+
+# Runtime artefacts
+.facts_cache/
+*.retry

@@ -1,0 +1,18 @@
+---
+# Collector proxies only. These run on the residential exit nodes and are
+# completely independent of the app host -- they only need to be able to reach
+# https://<domain>/internal/v1/ingest outbound.
+#
+#   ansible-playbook proxy.yml --ask-vault-pass
+#   ansible-playbook proxy.yml --limit exit2.tls-reputation.com
+
+- name: Deploy the tls-reputation collector proxies
+  hosts: tlsrep_proxy
+  become: true
+
+  roles:
+    - role: common
+      tags: [common, setup]
+
+    - role: proxy
+      tags: [proxy, deploy]

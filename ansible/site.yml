@@ -1,0 +1,18 @@
+---
+# Everything, in dependency order: the app host (database -> API -> SPA ->
+# nginx/TLS) and then the collector proxies, which need the ingest endpoint to
+# exist before they start shipping batches at it.
+#
+#   ansible-playbook site.yml --ask-vault-pass
+#
+# Each component also has a standalone playbook (backend.yml, frontend.yml,
+# proxy.yml) for day-to-day partial deploys.
+
+- name: Import backend deployment
+  ansible.builtin.import_playbook: backend.yml
+
+- name: Import frontend deployment
+  ansible.builtin.import_playbook: frontend.yml
+
+- name: Import collector proxy deployment
+  ansible.builtin.import_playbook: proxy.yml

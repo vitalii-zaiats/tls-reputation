@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tls-reputation.com — TLS fingerprint reputation</title>
+    <meta
+      name="description"
+      content="A free, open lookup service for TLS client fingerprints. Search a JA3 or JA4 fingerprint to see which domains it has been observed reaching, and how widely it spreads."
+    />
+    <script>
+      // Applied before first paint so the page never flashes the wrong theme.
+      (function () {
+        try {
+          var stored = localStorage.getItem('tlsrep-theme')
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored)
+          }
+        } catch (e) {
+          /* localStorage unavailable; fall back to prefers-color-scheme */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

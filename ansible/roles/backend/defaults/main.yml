@@ -1,0 +1,32 @@
+---
+tlsrep_backend_user: tlsrep
+tlsrep_backend_group: tlsrep
+tlsrep_backend_dir: "{{ tlsrep_install_root }}/backend"
+tlsrep_backend_venv: "{{ tlsrep_backend_dir }}/.venv"
+tlsrep_backend_env_file: "{{ tlsrep_config_dir }}/backend.env"
+
+tlsrep_backend_bind_host: 127.0.0.1
+tlsrep_backend_bind_port: 8000
+tlsrep_backend_workers: 2
+
+# ASGI entrypoint, passed to uvicorn.
+tlsrep_backend_app: "tlsrep.main:app"
+
+tlsrep_backend_memory_max: 1G
+tlsrep_backend_tasks_max: 512
+
+tlsrep_backend_schema_file: backend/tlsrep/schema.sql
+
+tlsrep_uv_version: "0.5.14"
+tlsrep_python_version: "3.13"
+
+# rsync exclusions -- never ship local dev cruft to the server.
+tlsrep_backend_rsync_excludes:
+  - ".venv/"
+  - "__pycache__/"
+  - "*.pyc"
+  - ".pytest_cache/"
+  - ".ruff_cache/"
+  - ".mypy_cache/"
+  - ".env"
+  - "tests/"

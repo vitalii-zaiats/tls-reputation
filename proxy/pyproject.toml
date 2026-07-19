@@ -1,0 +1,30 @@
+[project]
+name = "tlsrep-proxy"
+version = "0.1.0"
+description = "HTTP CONNECT proxy that reports observed TLS ClientHellos to tls-reputation"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+# Standard library only. This runs on exit nodes that are awkward to update;
+# every dependency is a future deployment problem.
+dependencies = []
+
+[project.scripts]
+tlsrep-proxy = "tlsrep_proxy.main:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tlsrep_proxy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"

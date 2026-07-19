@@ -1,0 +1,19 @@
+---
+# Where nginx serves the SPA from. Owned by deploy, world-readable so the
+# nginx worker (www-data) can read it.
+tlsrep_frontend_root: /var/www/tls-reputation
+
+tlsrep_frontend_local_dir: "{{ tlsrep_local_repo }}/frontend"
+tlsrep_frontend_dist: "{{ tlsrep_frontend_local_dir }}/dist"
+
+# Build on the control machine and ship the artifact. Set to false if you have
+# already built dist/ yourself and just want it shipped.
+tlsrep_frontend_build: true
+
+# Baked into the bundle at build time by Vite. Relative by default so the SPA
+# talks to whatever origin serves it, via the nginx /api/ proxy.
+tlsrep_frontend_api_base: "/api/v1"
+
+# `npm ci` requires a lockfile and is the reproducible choice. Falls back to
+# `npm install` automatically if package-lock.json is absent.
+tlsrep_frontend_npm_ci: true

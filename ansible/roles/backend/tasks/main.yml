@@ -1,0 +1,180 @@
+---
+# --------------------------------------------------------------------------
+# Preflight. Fail here, loudly, rather than half-way through a deploy with a
+# confusing uv or psql error.
+# --------------------------------------------------------------------------
+
+- name: Check that the backend sources exist locally
+  ansible.builtin.stat:
+    path: "{{ tlsrep_local_repo }}/{{ item }}"
+  register: _tlsrep_backend_sources
+  loop:
+    - backend/pyproject.toml
+    - "{{ tlsrep_backend_schema_file }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  tags: [always]
+
+- name: Assert the backend is deployable
+  ansible.builtin.assert:
+    that: _tlsrep_backend_sources.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Missing backend sources in {{ tlsrep_local_repo }}:
+      {{ _tlsrep_backend_sources.results | rejectattr('stat.exists')
+         | map(attribute='item') | join(', ') }}.
+      The backend cannot be deployed until these exist -- pyproject.toml drives
+      `uv sync` and schema.sql drives the migration.
+    quiet: true
+  run_once: true
+  tags: [always]
+
+- name: Install the uv toolchain
+  ansible.builtin.include_tasks: uv.yml
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Service account and layout
+# --------------------------------------------------------------------------
+
+- name: Create the backend service group
+  ansible.builtin.group:
+    name: "{{ tlsrep_backend_group }}"
+    system: true
+    state: present
+  tags: [setup]
+
+# Non-login system account: it owns nothing but the runtime, and cannot be
+# used to get a shell if the API is ever compromised.
+- name: Create the backend service user
+  ansible.builtin.user:
+    name: "{{ tlsrep_backend_user }}"
+    group: "{{ tlsrep_backend_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ tlsrep_backend_dir }}"
+    create_home: false
+    state: present
+  tags: [setup]
+
+# Owned by deploy so rsync can write it without root; group-readable by the
+# service account so uvicorn can import the package.
+- name: Create the backend application directory
+  ansible.builtin.file:
+    path: "{{ tlsrep_backend_dir }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: "{{ tlsrep_backend_group }}"
+    mode: "0750"
+  tags: [setup, deploy]
+
+- name: Install the PostgreSQL client
+  ansible.builtin.apt:
+    name: postgresql-client
+    state: present
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Ship the code. rsync from the local checkout -- see README for why this is
+# the default rather than pulling with git.
+# --------------------------------------------------------------------------
+
+- name: Synchronise the backend source
+  ansible.posix.synchronize:
+    src: "{{ tlsrep_local_repo }}/backend/"
+    dest: "{{ tlsrep_backend_dir }}/"
+    archive: true
+    delete: true
+    compress: true
+    rsync_opts: "{{ tlsrep_backend_rsync_excludes | map('regex_replace', '^', '--exclude=') | list }}"
+  become: false
+  register: _tlsrep_backend_sync
+  notify: Restart tlsrep-backend
+  tags: [deploy]
+
+- name: Resolve the Python dependencies
+  ansible.builtin.command:
+    cmd: /usr/local/bin/uv sync --frozen --no-dev --python {{ tlsrep_python_version }}
+    chdir: "{{ tlsrep_backend_dir }}"
+  environment:
+    UV_PYTHON_INSTALL_DIR: /opt/uv-python
+    UV_CACHE_DIR: "{{ tlsrep_backend_dir }}/.uv-cache"
+  become: false
+  register: _tlsrep_uv_sync
+  changed_when: >-
+    'Installed' in (_tlsrep_uv_sync.stderr | default('')) or
+    'Uninstalled' in (_tlsrep_uv_sync.stderr | default(''))
+  notify: Restart tlsrep-backend
+  tags: [deploy]
+
+- name: Enforce ownership on the deployed tree
+  ansible.builtin.file:
+    path: "{{ tlsrep_backend_dir }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user }}"
+    group: "{{ tlsrep_backend_group }}"
+    mode: "0750"
+    recurse: true
+  tags: [deploy]
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
+- name: Install the backend environment file
+  ansible.builtin.template:
+    src: backend.env.j2
+    dest: "{{ tlsrep_backend_env_file }}"
+    owner: "{{ tlsrep_backend_user }}"
+    group: "{{ tlsrep_backend_group }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart tlsrep-backend
+  tags: [config, deploy]
+
+- name: Install the backend systemd unit
+  ansible.builtin.template:
+    src: tlsrep-backend.service.j2
+    dest: /etc/systemd/system/tlsrep-backend.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart tlsrep-backend
+  tags: [config, deploy]
+
+# --------------------------------------------------------------------------
+# Schema migration. schema.sql is idempotent (CREATE TABLE IF NOT EXISTS), so
+# it is safe to reapply on every deploy.
+#
+# This runs as an ordinary task while the restart is a handler, which is
+# exactly the ordering we need: handlers flush at the end of the play, so the
+# schema is always in place before the new code starts serving.
+# --------------------------------------------------------------------------
+
+- name: Apply the database schema
+  ansible.builtin.command:
+    cmd: >-
+      psql --no-psqlrc --quiet --set ON_ERROR_STOP=1
+      --file {{ tlsrep_backend_dir }}/tlsrep/schema.sql
+  environment:
+    PGHOST: "{{ tlsrep_db_host }}"
+    PGPORT: "{{ tlsrep_db_port | string }}"
+    PGDATABASE: "{{ tlsrep_db_name }}"
+    PGUSER: "{{ tlsrep_db_user }}"
+    PGPASSWORD: "{{ tlsrep_db_password }}"
+  become: false
+  # Idempotent DDL: reapplying it is a no-op, so this is never a "change".
+  changed_when: false
+  no_log: true
+  tags: [deploy, migrate]
+
+- name: Enable the backend service
+  ansible.builtin.systemd_service:
+    name: tlsrep-backend
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [deploy]

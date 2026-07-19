@@ -1,0 +1,17 @@
+---
+# ---------------------------------------------------------------------------
+# TEMPLATE ONLY -- contains no real secrets. Copy, fill in, then encrypt:
+#
+#   cp vault.yml.example vault.yml
+#   $EDITOR vault.yml
+#   ansible-vault encrypt vault.yml
+#
+# Edit later with:  ansible-vault edit inventory/group_vars/tlsrep_proxy/vault.yml
+#
+# vault.yml is gitignored. Never commit it decrypted.
+# ---------------------------------------------------------------------------
+
+# Shared secret presented to the backend's internal ingest endpoint.
+# MUST match vault_tlsrep_ingest_key in the tlsrep_backend group vault.
+# When rotating, deploy the backend first, then the proxies -- see README.
+vault_tlsrep_ingest_key: "CHANGEME-ingest-key"

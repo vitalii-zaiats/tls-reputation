@@ -1,0 +1,39 @@
+---
+# ---------------------------------------------------------------------------
+# Shared, non-secret configuration. Secrets live in the per-group vault.yml
+# files (see vault.yml.example next to this file).
+# ---------------------------------------------------------------------------
+
+tlsrep_domain: tls-reputation.com
+
+# Where the local checkout lives. Everything is shipped with rsync from here,
+# so the control machine (your laptop) is the source of truth for what is
+# deployed. `playbook_dir` is <repo>/ansible, so the repo root is one up.
+tlsrep_local_repo: "{{ playbook_dir }}/.."
+
+# Common on-target layout.
+tlsrep_config_dir: /etc/tls-reputation
+tlsrep_install_root: /opt/tls-reputation
+
+# Unprivileged account Ansible connects as and that owns the shipped code.
+# Service accounts (tlsrep / tlsrep-proxy) are separate and cannot log in.
+tlsrep_deploy_user: deploy
+tlsrep_deploy_group: deploy
+
+# uv is used to manage the Python toolchain on every Python host. Pinned so a
+# deploy is reproducible; bump deliberately.
+tlsrep_uv_version: "0.5.14"
+tlsrep_python_version: "3.13"
+
+tlsrep_timezone: Etc/UTC
+
+# Baseline packages installed everywhere by the `common` role.
+tlsrep_common_packages:
+  - ca-certificates
+  - curl
+  - git
+  - rsync
+  - unattended-upgrades
+  - ufw
+  - htop
+  - jq

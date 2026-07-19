@@ -1,0 +1,23 @@
+---
+# Frontend only. Builds the SPA locally (npm ci && npm run build on YOUR
+# machine) and rsyncs the resulting dist/ to the web root. No node is
+# installed on the target.
+#
+#   ansible-playbook frontend.yml
+#
+# This is the fast path for a pure UI change -- it never touches the API
+# service or the database.
+
+- name: Deploy the tls-reputation frontend
+  hosts: tlsrep_frontend
+  become: true
+
+  roles:
+    - role: common
+      tags: [common, setup]
+
+    - role: frontend
+      tags: [frontend, deploy]
+
+    - role: nginx
+      tags: [nginx, config, tls]

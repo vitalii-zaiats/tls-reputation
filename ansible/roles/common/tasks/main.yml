@@ -1,0 +1,148 @@
+---
+- name: Assert the target is Ubuntu 24.04
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_major_version'] is version('24', '>=')
+    fail_msg: >-
+      These playbooks target Ubuntu 24.04 LTS; this host reports
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}.
+    quiet: true
+  tags: [always]
+
+- name: Set the system timezone
+  community.general.timezone:
+    name: "{{ tlsrep_timezone }}"
+  tags: [setup]
+
+- name: Refresh the apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  changed_when: false
+  tags: [setup]
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ tlsrep_common_packages }}"
+    state: present
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Deploy user -- owns the shipped code and is the account Ansible connects as.
+# Service accounts are separate and cannot log in.
+# --------------------------------------------------------------------------
+
+- name: Create the deploy group
+  ansible.builtin.group:
+    name: "{{ tlsrep_deploy_group }}"
+    state: present
+  tags: [setup]
+
+- name: Create the deploy user
+  ansible.builtin.user:
+    name: "{{ tlsrep_deploy_user }}"
+    group: "{{ tlsrep_deploy_group }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  tags: [setup]
+
+- name: Authorise deploy SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ tlsrep_deploy_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ tlsrep_deploy_authorized_keys }}"
+  when: tlsrep_deploy_authorized_keys | length > 0
+  tags: [setup]
+
+# Passwordless sudo is what makes unattended `become` work from a laptop.
+# Scoped to the deploy user only and validated before it is written, so a
+# malformed template can never lock you out of the box.
+- name: Grant the deploy user passwordless sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ tlsrep_deploy_user }}"
+    content: "{{ tlsrep_deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -csf %s
+  tags: [setup]
+
+- name: Create the shared config directory
+  ansible.builtin.file:
+    path: "{{ tlsrep_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [setup]
+
+- name: Create the install root
+  ansible.builtin.file:
+    path: "{{ tlsrep_install_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Unattended security upgrades
+# --------------------------------------------------------------------------
+
+- name: Configure unattended-upgrades
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart unattended-upgrades
+  tags: [setup, config]
+
+- name: Enable periodic apt tasks
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [setup, config]
+
+- name: Enable the unattended-upgrades service
+  ansible.builtin.systemd_service:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# UFW baseline: deny inbound, allow outbound, allow SSH. Per-service ports are
+# opened by the roles that need them (nginx opens 80/443, proxy opens its
+# listen port).
+# --------------------------------------------------------------------------
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+  tags: [setup, firewall]
+
+- name: Set the UFW default outgoing policy
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+  tags: [setup, firewall]
+
+# Ordered last so SSH is already permitted when the default-deny takes effect.
+- name: Set the UFW default incoming policy and enable it
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+    state: enabled
+  tags: [setup, firewall]

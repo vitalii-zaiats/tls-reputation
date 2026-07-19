@@ -1,0 +1,174 @@
+---
+- name: Install nginx and certbot
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - certbot
+    state: present
+  tags: [setup]
+
+- name: Remove the default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+  tags: [config]
+
+- name: Install the nginx base configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/conf.d/tlsrep-base.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: nginx -t -c /etc/nginx/nginx.conf
+  notify: Reload nginx
+  tags: [config]
+
+- name: Create the ACME webroot
+  ansible.builtin.file:
+    path: "{{ tlsrep_acme_webroot }}/.well-known/acme-challenge"
+    state: directory
+    owner: root
+    group: www-data
+    mode: "0755"
+  tags: [setup, tls]
+
+- name: Create the web root
+  ansible.builtin.file:
+    path: "{{ tlsrep_frontend_root }}"
+    state: directory
+    owner: "{{ tlsrep_deploy_user | default('root') }}"
+    group: www-data
+    mode: "0755"
+  tags: [setup]
+
+- name: Open the web ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+  tags: [setup, firewall]
+
+# --------------------------------------------------------------------------
+# Two-phase TLS bootstrap.
+#
+# certbot's webroot plugin needs a working HTTP vhost to answer the challenge,
+# but the final vhost references certificate files that do not exist yet --
+# nginx refuses to start with a missing ssl_certificate. So: render an
+# HTTP-only vhost first, get the certificate, then render the real one.
+#
+# On every subsequent run the certificate is already there and the first
+# render is the final config, so this costs nothing and stays idempotent.
+# --------------------------------------------------------------------------
+
+- name: Check for an existing certificate
+  ansible.builtin.stat:
+    path: "{{ tlsrep_cert_dir }}/fullchain.pem"
+  register: _tlsrep_cert
+  tags: [config, tls]
+
+- name: Install the site vhost
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ tlsrep_nginx_site }}"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    _tlsrep_vhost_tls: "{{ tlsrep_tls_enabled and _tlsrep_cert.stat.exists }}"
+  notify: Reload nginx
+  tags: [config, tls]
+
+- name: Enable the site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ tlsrep_nginx_site }}"
+    dest: "/etc/nginx/sites-enabled/{{ tlsrep_nginx_site }}"
+    state: link
+  notify: Reload nginx
+  tags: [config, tls]
+
+- name: Ensure nginx is enabled and running
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+  tags: [setup]
+
+# nginx must be serving the ACME path before certbot runs, so flush the
+# pending reload rather than waiting for the end of the play.
+- name: Apply the pending nginx reload
+  ansible.builtin.meta: flush_handlers
+  tags: [config, tls]
+
+- name: Obtain the Let's Encrypt certificate
+  ansible.builtin.command:
+    cmd: >-
+      certbot certonly --webroot
+      --webroot-path {{ tlsrep_acme_webroot }}
+      --cert-name {{ tlsrep_domain }}
+      {% for d in tlsrep_certbot_domains %}-d {{ d }} {% endfor %}
+      --email {{ tlsrep_certbot_email }}
+      --agree-tos --non-interactive --no-eff-email
+      --keep-until-expiring
+      {{ '--staging' if tlsrep_certbot_staging else '' }}
+    creates: "{{ tlsrep_cert_dir }}/fullchain.pem"
+  when:
+    - tlsrep_tls_enabled
+    - not _tlsrep_cert.stat.exists
+  register: _tlsrep_certbot
+  tags: [tls]
+
+- name: Re-check for the certificate
+  ansible.builtin.stat:
+    path: "{{ tlsrep_cert_dir }}/fullchain.pem"
+  register: _tlsrep_cert_after
+  when: tlsrep_tls_enabled
+  tags: [tls]
+
+# Second phase: now that the certificate exists, render the TLS vhost. Skipped
+# entirely on steady-state runs because the first render already had TLS.
+- name: Install the TLS vhost
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ tlsrep_nginx_site }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "nginx -t -c /etc/nginx/nginx.conf"
+  vars:
+    _tlsrep_vhost_tls: true
+  when:
+    - tlsrep_tls_enabled
+    - not _tlsrep_cert.stat.exists
+    - _tlsrep_cert_after.stat.exists | default(false)
+  notify: Reload nginx
+  tags: [tls]
+
+# --------------------------------------------------------------------------
+# Renewal. The certbot package ships a systemd timer that handles the actual
+# renewal; it just needs to tell nginx to pick up the new certificate.
+# --------------------------------------------------------------------------
+
+- name: Install the certbot nginx reload hook
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/10-reload-nginx.sh
+    content: |
+      #!/bin/sh
+      # {{ ansible_managed }}
+      # Reload nginx so a renewed certificate takes effect without a restart.
+      systemctl reload nginx
+    owner: root
+    group: root
+    mode: "0755"
+  when: tlsrep_tls_enabled
+  tags: [tls, config]
+
+- name: Ensure the certbot renewal timer is enabled
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started
+  when: tlsrep_tls_enabled
+  tags: [tls, setup]

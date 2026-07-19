@@ -1,0 +1,18 @@
+---
+tlsrep_pg_version: 16
+tlsrep_pg_conf_dir: "/etc/postgresql/{{ tlsrep_pg_version }}/main"
+
+# Loopback only. Nothing outside this host ever speaks to the database; the
+# API is the only client and it runs alongside it.
+tlsrep_pg_listen_addresses: "127.0.0.1"
+tlsrep_pg_port: 5432
+
+# Modest tuning for a small VPS. Adjust to the box.
+tlsrep_pg_max_connections: 100
+tlsrep_pg_shared_buffers: 256MB
+tlsrep_pg_effective_cache_size: 768MB
+tlsrep_pg_work_mem: 8MB
+tlsrep_pg_maintenance_work_mem: 64MB
+
+# Log statements slower than this (ms); -1 disables.
+tlsrep_pg_log_min_duration: 500

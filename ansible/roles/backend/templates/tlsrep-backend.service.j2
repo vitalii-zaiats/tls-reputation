@@ -1,0 +1,74 @@
+# {{ ansible_managed }}
+[Unit]
+Description=tls-reputation API (FastAPI/uvicorn)
+Documentation=https://{{ tlsrep_domain }}
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Not Requires=: if the database is briefly down we want the API to keep
+# restarting and recover on its own rather than be stopped along with it.
+After=postgresql.service
+
+[Service]
+Type=exec
+User={{ tlsrep_backend_user }}
+Group={{ tlsrep_backend_group }}
+WorkingDirectory={{ tlsrep_backend_dir }}
+EnvironmentFile={{ tlsrep_backend_env_file }}
+
+ExecStart={{ tlsrep_backend_venv }}/bin/uvicorn \
+    {{ tlsrep_backend_app }} \
+    --host {{ tlsrep_backend_bind_host }} \
+    --port {{ tlsrep_backend_bind_port }} \
+    --workers {{ tlsrep_backend_workers }} \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1 \
+    --no-server-header
+
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+Restart=always
+RestartSec=3
+# Don't hammer a genuinely broken deploy: give up after 5 failures in 60s so
+# the unit lands in `failed` and shows up in monitoring.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# ---- hardening -----------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# ProtectSystem=strict makes everything read-only; the app needs no writable
+# paths at all. Its state lives in PostgreSQL and its logs go to the journal.
+ReadWritePaths=
+
+# ---- resource limits -----------------------------------------------------
+MemoryMax={{ tlsrep_backend_memory_max }}
+TasksMax={{ tlsrep_backend_tasks_max }}
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

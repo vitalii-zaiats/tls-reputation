@@ -1,0 +1,145 @@
+{#
+  Rendered twice on a first run: once without TLS so certbot can answer the
+  HTTP-01 challenge, then again with TLS once the certificate exists.
+  `_tlsrep_vhost_tls` is set by the calling task.
+#}
+{% set tls = _tlsrep_vhost_tls | default(false) %}
+# {{ ansible_managed }}
+
+upstream tlsrep_backend {
+    server {{ tlsrep_backend_bind_host }}:{{ tlsrep_backend_bind_port }};
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ tlsrep_certbot_domains | join(' ') }};
+
+    # Always served over plain HTTP, ahead of any redirect, so renewals keep
+    # working.
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ tlsrep_acme_webroot }};
+        default_type "text/plain";
+    }
+
+{% if tls %}
+    location / {
+        return 301 https://{{ tlsrep_domain }}$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ tlsrep_certbot_domains | join(' ') }};
+
+    ssl_certificate     {{ tlsrep_cert_dir }}/fullchain.pem;
+    ssl_certificate_key {{ tlsrep_cert_dir }}/privkey.pem;
+    ssl_trusted_certificate {{ tlsrep_cert_dir }}/chain.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_session_cache shared:TLSREP:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+{% endif %}
+
+{% if tls %}
+    # Canonical host: send www to the apex.
+    if ($host = www.{{ tlsrep_domain }}) {
+        return 301 https://{{ tlsrep_domain }}$request_uri;
+    }
+{% endif %}
+
+    root {{ tlsrep_frontend_root }};
+    index index.html;
+
+    # --- security headers -------------------------------------------------
+    # nginx does not merge add_header across levels, so any location that adds
+    # its own headers repeats these.
+{% if tls %}
+    add_header Strict-Transport-Security "max-age={{ tlsrep_hsts_max_age }}; includeSubDomains{{ '; preload' if tlsrep_hsts_preload else '' }}" always;
+{% endif %}
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()" always;
+    # The SPA is self-hosted and self-contained: no external scripts, styles,
+    # or frames. connect-src stays 'self' because /api/ is same-origin.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
+
+    limit_conn tlsrep_conn 32;
+
+    # --- API --------------------------------------------------------------
+    location /api/ {
+        limit_req zone=tlsrep_api burst={{ tlsrep_api_rate_burst }} nodelay;
+
+        proxy_pass http://tlsrep_backend;
+
+{% if tls %}
+        add_header Strict-Transport-Security "max-age={{ tlsrep_hsts_max_age }}; includeSubDomains{{ '; preload' if tlsrep_hsts_preload else '' }}" always;
+{% endif %}
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+
+    # --- internal ingest --------------------------------------------------
+    # Where the collector proxies POST batched ClientHellos.
+    #
+    # This has to be publicly reachable: collectors run on residential exit
+    # nodes with addresses that can't be allowlisted. Three things guard it —
+    # a shared key checked by the application, a rate limit tighter than the
+    # public API's (a collector sends one batch per flush interval, not a
+    # stream), and a body cap. Anything that isn't a collector gets 429 long
+    # before it gets to guess at the key.
+    location /internal/ {
+        limit_req zone=tlsrep_ingest burst={{ tlsrep_ingest_rate_burst }} nodelay;
+        limit_conn tlsrep_conn 8;
+
+        client_max_body_size {{ tlsrep_ingest_max_body_size }};
+        proxy_pass http://tlsrep_backend;
+        proxy_read_timeout 60s;
+
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # --- static assets ----------------------------------------------------
+    # Vite emits content-hashed filenames, so these are safe to pin forever.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # index.html must never be cached, or clients keep loading the old bundle
+    # after a deploy.
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+{% if tls %}
+        add_header Strict-Transport-Security "max-age={{ tlsrep_hsts_max_age }}; includeSubDomains{{ '; preload' if tlsrep_hsts_preload else '' }}" always;
+{% endif %}
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
+    }
+
+    # --- SPA fallback -----------------------------------------------------
+    # vue-router uses history mode, so any unmatched path has to return the
+    # app shell and let the client route it.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    # Never serve dotfiles (.git, .env) if one ever lands in the web root.
+    location ~ /\. { deny all; }
+}

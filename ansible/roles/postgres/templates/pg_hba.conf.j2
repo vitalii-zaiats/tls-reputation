@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# Local connections only. There is no network-facing entry by design: the API
+# runs on this host and reaches the database over loopback.
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Administration over the unix socket, peer-authenticated. This is how Ansible
+# manages roles and databases without a stored superuser password.
+local   all             postgres                                peer
+
+# The application over loopback TCP, password-authenticated.
+local   {{ tlsrep_db_name }}   {{ tlsrep_db_user }}                            scram-sha-256
+host    {{ tlsrep_db_name }}   {{ tlsrep_db_user }}       127.0.0.1/32         scram-sha-256
+host    {{ tlsrep_db_name }}   {{ tlsrep_db_user }}       ::1/128              scram-sha-256
+
+# Replication is unused; left peer-only rather than removed so pg_basebackup
+# from the host itself still works for ad-hoc backups.
+local   replication     all                                     peer
