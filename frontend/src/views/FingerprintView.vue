@@ -379,10 +379,13 @@ const noJa3Reason = computed(() => {
           caption="The distinct JA3 hashes this fingerprint has emitted"
           empty-text="No JA3 variants recorded."
         >
+          <!-- Not a link. Every JA3 here belongs to THIS JA4 — that is what the
+               table is — so a link would resolve straight back to this page and
+               read as a dead scroll-to-top. There is no per-JA3 page to reach:
+               observations are keyed on the JA4, not the JA3. So the hash is
+               copyable instead, for pasting into the lookup or a report. -->
           <template #cell-ja3="{ value }">
-            <RouterLink :to="{ name: 'fingerprint', params: { hash: value } }">
-              {{ truncateMiddle(value, 14, 6) }}
-            </RouterLink>
+            <CopyText :value="value" :display="truncateMiddle(value, 14, 6)" label="JA3 hash" />
           </template>
           <template #cell-ja3_raw="{ value }">
             <span :title="value">{{ truncateMiddle(value, 32, 10) }}</span>
