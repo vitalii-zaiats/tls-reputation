@@ -136,6 +136,10 @@ const embedSnippet = `<iframe
   src="${EMBED_ORIGIN}/embed?sni=www.facebook.com"
   width="100%" height="600" style="border:0"
   title="TLS reputation graph"></iframe>`
+const alpnSnippet = `<iframe
+  src="${EMBED_ORIGIN}/embed/alpn"
+  width="100%" height="560" style="border:0"
+  title="TLS reputation — ALPN offers"></iframe>`
 
 const copied = ref('')
 let timer = null
@@ -532,6 +536,24 @@ onBeforeUnmount(() => {
         <code>{{ EMBED_ORIGIN }}/graph</code>. Reseed the frame by changing the
         <code>?sni=</code> / <code>?ja4=</code> in its <code>src</code>.
       </p>
+
+      <h2>Embed the ALPN chart</h2>
+      <p>
+        A second chrome-less widget at <code>/embed/alpn</code> is a live ranked chart of ALPN
+        offers — with the corpus totals and a <em>share by fingerprint / observation</em> toggle.
+        Same deal: fills the frame, follows light or dark, nothing external to allow.
+      </p>
+      <div class="codeblock">
+        <pre><code>{{ alpnSnippet }}</code></pre>
+        <button
+          type="button"
+          class="control copy"
+          aria-label="Copy the ALPN embed iframe snippet"
+          @click="copy('alpn', alpnSnippet)"
+        >
+          {{ copied === 'alpn' ? 'copied' : copied === 'alpn:failed' ? 'failed' : 'copy' }}
+        </button>
+      </div>
     </section>
 
     <section class="section">

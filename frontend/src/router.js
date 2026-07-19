@@ -52,6 +52,14 @@ const routes = [
     meta: { embed: true, title: `graph — ${SITE}` },
   },
   {
+    // ALPN-distribution widget, also chrome-less and iframeable. Under /embed
+    // so the same nginx framing relaxation covers it.
+    path: '/embed/alpn',
+    name: 'alpn-embed',
+    component: () => import('./views/AlpnWidget.vue'),
+    meta: { embed: true, title: `ALPN offers — ${SITE}` },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('./views/NotFoundView.vue'),
