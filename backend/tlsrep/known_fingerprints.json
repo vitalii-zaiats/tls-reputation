@@ -31,5 +31,9 @@
 
   "t13d1911h2_9dc949149365_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, CGO / go run — pure-Go TLS, same on any base image" },
   "t13d1910h2_9dc949149365_97f8aa674fd9": { "name": "Go net/http", "env": "Go 1.20, CGO / go run — pure-Go TLS" },
-  "t13d1411h2_cbb2034c60b8_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, static build (CGO off) — distroless/scratch; a different cipher set" }
+  "t13d1411h2_cbb2034c60b8_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, static build (CGO off) — distroless/scratch; a different cipher set" },
+
+  "_browsers": "Keys below are prefixes (ja4_a_ja4_b, no third part): browsers permute their TLS extensions, so ja4_c varies while the version + cipher list stay put. known_client() falls back to a prefix match when the full JA4 isn't an exact hit.",
+  "t13d1516h2_8daaf6152771": { "name": "Google Chrome / Chromium", "env": "desktop — also Edge, Brave, Opera (shared Chromium stack); ja4_c varies (permuted extensions)" },
+  "t13d1617h2_86a278354501": { "name": "Mozilla Firefox", "env": "desktop — also Firefox forks (Zen, LibreWolf, Tor Browser base)" }
 }

@@ -268,14 +268,17 @@ const noJa3Reason = computed(() => {
 
     <template v-else-if="fp">
       <header class="head">
-        <h1>Fingerprint</h1>
-        <!-- When this JA4 matches the ground-truth catalog, name the client
-             outright: the anonymous hash becomes "Python requests on Alpine". -->
-        <p v-if="fp.known" class="known">
-          <span class="known-tag">known client</span>
-          <span class="known-name mono">{{ fp.known.name }}</span>
-          <span v-if="fp.known.env" class="known-env">{{ fp.known.env }}</span>
-        </p>
+        <!-- When this JA4 matches the ground-truth catalog the page leads with
+             the client, not the word "Fingerprint": an amber eyebrow marks it
+             as an identified build, the heading is the name, a dim subtitle is
+             the build. The anonymous hash becomes "Python requests on Alpine".
+             Unknown JA4s keep the generic heading. -->
+        <template v-if="fp.known">
+          <p class="eyebrow"><span class="dot" aria-hidden="true"></span>known client</p>
+          <h1 class="named">{{ fp.known.name }}</h1>
+          <p v-if="fp.known.env" class="subtitle">{{ fp.known.env }}</p>
+        </template>
+        <h1 v-else>Fingerprint</h1>
         <dl class="kv">
           <dt>JA4</dt>
           <dd><CopyText :value="fp.ja4" label="JA4 string" /></dd>
@@ -459,32 +462,33 @@ const noJa3Reason = computed(() => {
   margin-bottom: var(--sp-3);
 }
 
-/* Known-client banner: a named identity for a matched JA4. Amber accent, since
-   it is the one thing on the page that turns the hash into a name. */
-.known {
+/* Known-client identity for a matched JA4. No box: the accent is the small
+   amber dot in the eyebrow, so it sits inside the type instead of fighting it.
+   The heading is the client name; the subtitle is the build it was seen in. */
+.eyebrow {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-3);
-  margin: 0 0 var(--sp-4);
-  padding: var(--sp-2) var(--sp-3);
-  border: var(--border-width) solid var(--amber);
-  border-radius: var(--radius-chip);
-  background: var(--amber-soft);
-}
-.known-tag {
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--link);
 }
-.known-name {
-  font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--text);
+.eyebrow .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex: none;
 }
-.known-env {
+.head .named {
+  margin-bottom: var(--sp-2);
+}
+.subtitle {
+  max-width: var(--measure);
+  margin: 0 0 var(--sp-4);
   font-size: var(--fs-sm);
   color: var(--dim);
 }

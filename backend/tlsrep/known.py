@@ -28,10 +28,21 @@ _CATALOG = _load()
 
 
 def known_client(ja4: str | None) -> dict | None:
-    """Return {name, env} for a known JA4, or None. `label` is the two joined."""
+    """Return {name, env} for a known JA4, or None. `label` is the two joined.
+
+    Two kinds of catalog key. A full JA4 (a_b_c) is an exact match, right for a
+    library whose ja4_c is stable. A prefix (a_b, no third part) matches any
+    ja4_c — right for a browser like Chrome that permutes its extensions and so
+    varies ja4_c while its version and cipher list (a_b) stay put. Exact wins
+    over prefix.
+    """
     if not ja4:
         return None
     entry = _CATALOG.get(ja4)
+    if entry is None:
+        parts = ja4.split("_")
+        if len(parts) == 3:
+            entry = _CATALOG.get(f"{parts[0]}_{parts[1]}")
     if entry is None:
         return None
     name, env = entry["name"], entry.get("env", "")
