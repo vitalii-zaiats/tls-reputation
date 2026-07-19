@@ -120,6 +120,9 @@ function fpKey(row) {
         <p class="domain">
           <CopyText :value="sni.sni" label="domain" />
         </p>
+        <p class="links">
+          <RouterLink :to="{ name: 'graph', query: { sni: sni.sni } }">explore in graph →</RouterLink>
+        </p>
       </header>
 
       <section class="section">
@@ -202,6 +205,10 @@ function fpKey(row) {
   font-family: var(--font-mono);
   font-size: var(--fs-md);
   margin: 0;
+}
+
+.head .links {
+  margin: var(--sp-2) 0 0;
 }
 
 .notobserved h1 {

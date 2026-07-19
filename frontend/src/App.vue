@@ -8,48 +8,58 @@ const route = useRoute()
 
 // The home page has its own large lookup box; don't duplicate it in the header.
 const showHeaderLookup = computed(() => route.name !== 'home')
+
+// Embed routes (the iframeable graph) render ONLY the view — no masthead, nav
+// or footer — so a blog can drop them in at 100% of the frame.
+const isEmbed = computed(() => route.meta.embed === true)
 </script>
 
 <template>
-  <a class="skip" href="#main">Skip to content</a>
+  <!-- Chrome-less: the embedded view owns the whole viewport. -->
+  <RouterView v-if="isEmbed" />
 
-  <header class="masthead">
-    <div class="masthead-inner">
-      <div class="brand">
-        <RouterLink to="/" class="wordmark">tls-reputation.com</RouterLink>
-        <span class="tagline">TLS fingerprint reputation</span>
+  <template v-else>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="masthead-inner">
+        <div class="brand">
+          <RouterLink to="/" class="wordmark">tls-reputation.com</RouterLink>
+          <span class="tagline">TLS fingerprint reputation</span>
+        </div>
+
+        <nav class="nav" aria-label="Main">
+          <RouterLink to="/browse">browse</RouterLink>
+          <RouterLink to="/graph">graph</RouterLink>
+          <RouterLink to="/docs">docs</RouterLink>
+          <a href="/api/docs">api</a>
+        </nav>
+
+        <ThemeToggle />
       </div>
 
-      <nav class="nav" aria-label="Main">
-        <RouterLink to="/browse">browse</RouterLink>
-        <RouterLink to="/docs">docs</RouterLink>
-        <a href="/api/docs">api</a>
-      </nav>
+      <div v-if="showHeaderLookup" class="header-lookup">
+        <LookupInput size="sm" />
+      </div>
+    </header>
 
-      <ThemeToggle />
-    </div>
+    <main id="main" class="page">
+      <RouterView />
+    </main>
 
-    <div v-if="showHeaderLookup" class="header-lookup">
-      <LookupInput size="sm" />
-    </div>
-  </header>
-
-  <main id="main" class="page">
-    <RouterView />
-  </main>
-
-  <footer class="footer">
-    <div class="footer-inner">
-      <p class="line">
-        Public, free and open. Data licensed
-        <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY&nbsp;4.0</a>.
-        No authentication, no rate limit beyond fair use.
-      </p>
-      <p class="line faint">
-        Fingerprints are observations of TLS ClientHello messages. They identify software, not people.
-      </p>
-    </div>
-  </footer>
+    <footer class="footer">
+      <div class="footer-inner">
+        <p class="line">
+          Public, free and open. Data licensed
+          <a href="https://creativecommons.org/licenses/by/4.0/" rel="license noopener">CC&nbsp;BY&nbsp;4.0</a>.
+          No authentication, no rate limit beyond fair use.
+        </p>
+        <p class="line faint">
+          Fingerprints are observations of TLS ClientHello messages. They identify software, not people.
+        </p>
+      </div>
+    </footer>
+  </template>
 </template>
 
 <style scoped>

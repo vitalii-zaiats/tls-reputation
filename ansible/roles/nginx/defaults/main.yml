@@ -46,3 +46,8 @@ tlsrep_nginx_client_max_body_size: 2m
 
 # The internal ingest endpoint accepts large batches from the collectors.
 tlsrep_ingest_max_body_size: 32m
+
+# Who may iframe the /embed/* widgets. '*' lets any site embed them, which is
+# the point of a public read-only widget; narrow it to specific origins (space
+# separated, e.g. "https://blog.example https://example.com") to restrict.
+tlsrep_embed_frame_ancestors: "*"

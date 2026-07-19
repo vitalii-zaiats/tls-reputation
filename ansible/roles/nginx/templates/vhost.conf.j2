@@ -129,6 +129,32 @@ server {
         add_header X-Content-Type-Options "nosniff" always;
     }
 
+    # --- embeddable widgets ----------------------------------------------
+    # The /embed/* routes are meant to be iframed into other sites (a blog
+    # post). The server-level headers forbid that outright — X-Frame-Options
+    # DENY and CSP frame-ancestors 'none' — so this location re-states the
+    # whole header set with framing allowed. It is safe to frame precisely
+    # because there is nothing here to clickjack: the embed is read-only, has
+    # no auth, no forms and no state-changing action. connect-src stays 'self'
+    # because the framed page still calls this same origin's /api.
+    #
+    # nginx replaces rather than merges add_header, so every header the widget
+    # should keep is repeated here; X-Frame-Options is deliberately omitted.
+    #
+    # Matches /embed and /embed/... but not /embedfoo. Only the framed document
+    # (index.html, served here for the SPA route) needs the relaxed headers;
+    # its /assets and /api sub-requests are not themselves framed.
+    location ~ ^/embed(/|$) {
+        proxy_pass http://tlsrep_frontend;
+
+{% if tls %}
+        add_header Strict-Transport-Security "max-age={{ tlsrep_hsts_max_age }}; includeSubDomains{{ '; preload' if tlsrep_hsts_preload else '' }}" always;
+{% endif %}
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors {{ tlsrep_embed_frame_ancestors }}; object-src 'none'" always;
+    }
+
     # --- the SPA ----------------------------------------------------------
     # Everything not matched above goes to the frontend container, which owns
     # the bundle, the immutable /assets/ caching, the no-cache on index.html

@@ -296,6 +296,10 @@ const noJa3Reason = computed(() => {
           </dd>
         </dl>
 
+        <p v-if="fp.ja4" class="links">
+          <RouterLink :to="{ name: 'graph', query: { ja4: fp.ja4 } }">explore in graph →</RouterLink>
+        </p>
+
         <!-- Only the /ja3 route carries this: it says what the hash you typed
              resolved to, and whether that resolution was unambiguous. -->
         <div v-if="fp.matched_ja3" class="matched">
@@ -446,6 +450,10 @@ const noJa3Reason = computed(() => {
 <style scoped>
 .head h1 {
   margin-bottom: var(--sp-4);
+}
+
+.head .links {
+  margin: var(--sp-3) 0 0;
 }
 
 .wrap {

@@ -129,6 +129,14 @@ curl -s "${BASE}/fingerprints?sort=spread&limit=10"
 # domains reached by the widest mix of fingerprints
 curl -s "${BASE}/snis?sort=spread&limit=10"`
 
+// The embeddable graph. Same-origin, self-contained, chrome-less. Seed it with
+// ?sni= or ?ja4=; the frame reads the same corpus this site does.
+const EMBED_ORIGIN = 'https://tls-reputation.vitalii-zaiats.com'
+const embedSnippet = `<iframe
+  src="${EMBED_ORIGIN}/embed?sni=www.facebook.com"
+  width="100%" height="600" style="border:0"
+  title="TLS reputation graph"></iframe>`
+
 const copied = ref('')
 let timer = null
 
@@ -494,6 +502,36 @@ onBeforeUnmount(() => {
           {{ copied === 'spread' ? 'copied' : copied === 'spread:failed' ? 'failed' : 'copy' }}
         </button>
       </div>
+    </section>
+
+    <section class="section">
+      <h2>Embed the graph</h2>
+      <p>
+        The <RouterLink to="/graph">graph explorer</RouterLink> — server names and fingerprints as a
+        force-directed graph you grow by clicking — has a chrome-less companion at
+        <code>/embed</code> for iframing into a post. It takes the same seed parameters,
+        <code>?sni=</code> or <code>?ja4=</code>, fills the frame, and follows the reader's light or
+        dark preference. It is served from this origin and calls this API, so there is nothing
+        external to allow.
+      </p>
+      <div class="codeblock">
+        <pre><code>{{ embedSnippet }}</code></pre>
+        <button
+          type="button"
+          class="control copy"
+          aria-label="Copy the embed iframe snippet"
+          @click="copy('embed', embedSnippet)"
+        >
+          {{ copied === 'embed' ? 'copied' : copied === 'embed:failed' ? 'failed' : 'copy' }}
+        </button>
+      </div>
+      <p class="footnote">
+        Node labels in the frame link to their <span class="mono">/sni</span> and
+        <span class="mono">/fp</span> pages, opening in a new tab so they escape the iframe, and a
+        small <em>open full view</em> link points back at
+        <code>{{ EMBED_ORIGIN }}/graph</code>. Reseed the frame by changing the
+        <code>?sni=</code> / <code>?ja4=</code> in its <code>src</code>.
+      </p>
     </section>
 
     <section class="section">

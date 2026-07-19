@@ -36,6 +36,22 @@ const routes = [
     meta: { title: `API documentation — ${SITE}` },
   },
   {
+    // Force-directed explorer. Seeded from ?sni= or ?ja4=; the view titles
+    // itself from the seed once the graph is built.
+    path: '/graph',
+    name: 'graph',
+    component: () => import('./views/GraphView.vue'),
+  },
+  {
+    // Same component, chrome-less and compact, for iframing into a blog. App.vue
+    // renders a bare RouterView for anything with meta.embed. The host nginx
+    // only relaxes framing for paths under /embed, so this path is deliberate.
+    path: '/embed',
+    name: 'graph-embed',
+    component: () => import('./views/GraphView.vue'),
+    meta: { embed: true, title: `graph — ${SITE}` },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('./views/NotFoundView.vue'),
