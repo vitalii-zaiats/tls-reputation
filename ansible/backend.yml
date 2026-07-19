@@ -1,8 +1,12 @@
 ---
-# Backend only: PostgreSQL, the FastAPI app, and the nginx vhost in front of
+# Backend only: PostgreSQL, the API container, and the nginx vhost in front of
 # it. Safe to run on its own; does not touch the frontend or the proxies.
 #
 #   ansible-playbook backend.yml --ask-vault-pass
+#   ansible-playbook backend.yml -e tlsrep_image_tag=a1b2c3d --ask-vault-pass
+#
+# Normally driven from the repo Makefile, which builds and pushes the image
+# first:  make deploy-backend
 
 - name: Deploy the tls-reputation backend
   hosts: tlsrep_backend
@@ -12,14 +16,21 @@
     - role: common
       tags: [common, setup]
 
+    # Docker Engine and GHCR authentication. Everything below this line runs
+    # as a container pulled from the registry.
+    - role: docker
+      tags: [docker, setup]
+
+    # Stays on the host, not in a container: it holds the corpus, and durable
+    # state should not share a lifecycle with a stateless image pull.
     - role: postgres
       tags: [postgres, setup]
 
     - role: backend
       tags: [backend, deploy]
 
-    # The vhost serves the SPA and proxies /api/ to the backend. Deploying the
-    # backend alone still needs nginx configured, so the role runs here too --
-    # it is idempotent and will leave an already-deployed dist/ untouched.
+    # The vhost proxies / to the frontend container and /api/ to the backend.
+    # Deploying the backend alone still needs nginx configured, so the role
+    # runs here too -- it is idempotent.
     - role: nginx
       tags: [nginx, config, tls]

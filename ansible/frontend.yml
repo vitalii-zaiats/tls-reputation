@@ -1,12 +1,13 @@
 ---
-# Frontend only. Builds the SPA locally (npm ci && npm run build on YOUR
-# machine) and rsyncs the resulting dist/ to the web root. No node is
-# installed on the target.
+# Frontend only. Pulls the prebuilt SPA image from GHCR and runs it behind the
+# host nginx. Nothing is built here and nothing is built on the target -- the
+# image comes off the laptop via `make push-frontend`.
 #
 #   ansible-playbook frontend.yml
+#   ansible-playbook frontend.yml -e tlsrep_image_tag=a1b2c3d
 #
-# This is the fast path for a pure UI change -- it never touches the API
-# service or the database.
+# This is the fast path for a pure UI change: it never touches the API
+# container or the database.
 
 - name: Deploy the tls-reputation frontend
   hosts: tlsrep_frontend
@@ -15,6 +16,9 @@
   roles:
     - role: common
       tags: [common, setup]
+
+    - role: docker
+      tags: [docker, setup]
 
     - role: frontend
       tags: [frontend, deploy]

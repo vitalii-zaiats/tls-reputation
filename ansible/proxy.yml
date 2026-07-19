@@ -4,7 +4,8 @@
 # https://<domain>/internal/v1/ingest outbound.
 #
 #   ansible-playbook proxy.yml --ask-vault-pass
-#   ansible-playbook proxy.yml --limit exit2.tls-reputation.com
+#   ansible-playbook proxy.yml --limit exit2.tls-reputation.com --ask-vault-pass
+#   ansible-playbook proxy.yml -e tlsrep_image_tag=a1b2c3d --ask-vault-pass
 
 - name: Deploy the tls-reputation collector proxies
   hosts: tlsrep_proxy
@@ -13,6 +14,9 @@
   roles:
     - role: common
       tags: [common, setup]
+
+    - role: docker
+      tags: [docker, setup]
 
     - role: proxy
       tags: [proxy, deploy]
