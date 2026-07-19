@@ -9,9 +9,13 @@
   "t13d1713h1_ab0a1bf427ad_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
   "t13d1714h1_ab0a1bf427ad_5ae85263eb3b": { "name": "Python urllib (stdlib)", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
 
-  "t13d1712h1_ab0a1bf427ad_882d495ac381": { "name": "Python requests", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
-  "t13d1712h1_ab0a1bf427ad_8e6e362c5eac": { "name": "Python httpx / aiohttp", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
-  "t13d1713h1_ab0a1bf427ad_89ab6efea773": { "name": "Python urllib (stdlib)", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
+  "t13d1712h1_ab0a1bf427ad_882d495ac381": { "name": "Python requests", "env": "Python 3.10–3.13, standalone OpenSSL 3 — Alpine (musl), uv, or macOS-arm; the OS never enters the ClientHello" },
+  "t13d1712h1_ab0a1bf427ad_8e6e362c5eac": { "name": "Python httpx / aiohttp", "env": "Python 3.10–3.13, standalone OpenSSL 3 — Alpine (musl), uv, or macOS-arm" },
+  "t13d1713h1_ab0a1bf427ad_89ab6efea773": { "name": "Python urllib (stdlib)", "env": "Python 3.10–3.13, standalone OpenSSL 3 — Alpine (musl), uv, or macOS-arm" },
+
+  "t13d3012h1_1d37bd780c83_882d495ac381": { "name": "Python requests", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm) — 3.9's wider legacy cipher default" },
+  "t13d3012h1_1d37bd780c83_8e6e362c5eac": { "name": "Python httpx / aiohttp", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm)" },
+  "t13d3012_1d37bd780c83_89ab6efea773":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm)" },
 
   "t13d3514h1_bfa337485184_748dcdc9032a": { "name": "Python requests", "env": "Amazon Linux 2023 (OpenSSL 3)" },
   "t13d3514h1_bfa337485184_412e5362642e": { "name": "Python httpx / aiohttp", "env": "Amazon Linux 2023 (OpenSSL 3)" },
@@ -52,7 +56,7 @@
   "t13d3012_1d37bd780c83_ecd0401ec68b":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Debian (OpenSSL 3) — base-dependent" },
   "t13d3011_1d37bd780c83_8e6e362c5eac":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Alpine (musl, OpenSSL 3) — base-dependent" },
 
-  "_browsers": "Keys below are prefixes (ja4_a_ja4_b, no third part): browsers permute their TLS extensions, so ja4_c varies while the version + cipher list stay put. known_client() falls back to a prefix match when the full JA4 isn't an exact hit.",
-  "t13d1516h2_8daaf6152771": { "name": "Google Chrome / Chromium", "env": "desktop — also Edge, Brave, Opera (shared Chromium stack); ja4_c varies (permuted extensions)" },
-  "t13d1617h2_86a278354501": { "name": "Mozilla Firefox", "env": "desktop — also Firefox forks (Zen, LibreWolf, Tor Browser base)" }
+  "_browsers": "Keys below are BARE ja4_b cipher-list hashes (12 hex, no ja4_a, no underscore): a browser's cipher list is its most stable signature — the same across the extension permutations and minor versions that shift ja4_a and ja4_c. Chrome offering 16 vs 17 extensions shares one ja4_b but has two different ja4_a, so an a_b prefix would catch only one; the bare ja4_b catches both. known_client() falls back to a ja4_b match after exact and prefix miss. Keyed only for cipher lists distinctive to a single client — never a library.",
+  "8daaf6152771": { "name": "Google Chrome / Chromium", "env": "Chromium cipher-suite signature — Chrome, Edge, Brave, Opera; any extension permutation or version" },
+  "86a278354501": { "name": "Mozilla Firefox", "env": "Firefox cipher-suite signature — also forks (Zen, LibreWolf, Tor Browser); any extension permutation or version" }
 }
