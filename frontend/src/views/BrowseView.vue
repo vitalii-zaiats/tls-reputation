@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { api } from '../api.js'
-import { formatInt, truncateMiddle } from '../format.js'
+import { formatDate, formatInt, truncateMiddle } from '../format.js'
 import DataTable from '../components/DataTable.vue'
 import SpreadBar from '../components/SpreadBar.vue'
 import Pagination from '../components/Pagination.vue'
@@ -10,12 +10,27 @@ import Pagination from '../components/Pagination.vue'
 const route = useRoute()
 const router = useRouter()
 
-const SORTS = [
-  { value: 'observations', label: 'observations' },
-  { value: 'unique_snis', label: 'unique snis' },
-  { value: 'spread', label: 'spread' },
+const TABS = [
+  { value: 'fingerprints', label: 'fingerprints' },
+  { value: 'domains', label: 'domains' },
 ]
-const VALID_SORTS = SORTS.map((s) => s.value)
+const VALID_TABS = TABS.map((t) => t.value)
+
+// Each mode has its own sort vocabulary; the backend rejects anything else.
+const SORTS = {
+  fingerprints: [
+    { value: 'observations', label: 'observations' },
+    { value: 'unique_snis', label: 'unique snis' },
+    { value: 'spread', label: 'spread' },
+  ],
+  domains: [
+    { value: 'observations', label: 'observations' },
+    { value: 'unique_fingerprints', label: 'unique fingerprints' },
+    { value: 'spread', label: 'spread' },
+    { value: 'last_seen', label: 'last seen' },
+  ],
+}
+const DEFAULT_SORT = 'observations'
 const PAGE = 50
 
 const items = ref([])
@@ -23,14 +38,23 @@ const total = ref(0)
 const loading = ref(true)
 const error = ref(null)
 
-// Sort and offset live in the URL so a view is linkable and survives reload.
-const sort = computed(() =>
-  VALID_SORTS.includes(route.query.sort) ? route.query.sort : 'observations',
-)
+// Mode, sort and offset all live in the URL so a view is linkable and survives
+// reload. An unknown value falls back rather than erroring.
+const tab = computed(() => (VALID_TABS.includes(route.query.tab) ? route.query.tab : 'fingerprints'))
+
+const sortOptions = computed(() => SORTS[tab.value])
+
+const sort = computed(() => {
+  const allowed = sortOptions.value.map((s) => s.value)
+  return allowed.includes(route.query.sort) ? route.query.sort : DEFAULT_SORT
+})
+
 const offset = computed(() => {
   const n = Number.parseInt(route.query.offset, 10)
   return Number.isFinite(n) && n > 0 ? n : 0
 })
+
+const isDomains = computed(() => tab.value === 'domains')
 
 let requestId = 0
 
@@ -39,7 +63,8 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const data = await api.fingerprints({ sort: sort.value, limit: PAGE, offset: offset.value })
+    const params = { sort: sort.value, limit: PAGE, offset: offset.value }
+    const data = isDomains.value ? await api.snis(params) : await api.fingerprints(params)
     if (id !== requestId) return
     items.value = data?.items ?? []
     total.value = data?.total ?? 0
@@ -53,32 +78,51 @@ async function load() {
   }
 }
 
-watch([sort, offset], load, { immediate: true })
+watch([tab, sort, offset], load, { immediate: true })
+
+// The router's meta title is per-route, so the mode has to set its own.
+watch(
+  tab,
+  (next) => {
+    document.title = `browse ${next} — tls-reputation.com`
+  },
+  { immediate: true },
+)
+
+function setTab(next) {
+  if (!VALID_TABS.includes(next) || next === tab.value) return
+  // Sorts are not shared between modes, so switching starts clean.
+  router.push({ name: 'browse', query: { tab: next } })
+}
 
 function setSort(key) {
-  if (!VALID_SORTS.includes(key) || key === sort.value) return
-  router.push({ name: 'browse', query: { sort: key } }) // new sort restarts paging
+  const allowed = sortOptions.value.map((s) => s.value)
+  if (!allowed.includes(key) || key === sort.value) return
+  router.push({ name: 'browse', query: { tab: tab.value, sort: key } }) // new sort restarts paging
 }
 
 function setOffset(next) {
   router.push({
     name: 'browse',
-    query: { sort: sort.value, ...(next > 0 ? { offset: next } : {}) },
+    query: { tab: tab.value, sort: sort.value, ...(next > 0 ? { offset: next } : {}) },
   })
 }
 
-const columns = computed(() => [
+const fpColumns = [
   { key: 'ja4', label: 'ja4', mono: true },
   { key: 'ja3', label: 'ja3', mono: true },
-  {
-    key: 'observations',
-    label: 'observations',
-    align: 'right',
-    sortable: true,
-  },
+  { key: 'observations', label: 'observations', align: 'right', sortable: true },
   { key: 'unique_snis', label: 'unique snis', align: 'right', sortable: true },
   { key: 'spread', label: 'spread', align: 'right', sortable: true, width: '10rem' },
-])
+]
+
+const domainColumns = [
+  { key: 'sni', label: 'domain', mono: true },
+  { key: 'observations', label: 'observations', align: 'right', sortable: true },
+  { key: 'unique_fingerprints', label: 'unique fingerprints', align: 'right', sortable: true },
+  { key: 'spread', label: 'spread', align: 'right', sortable: true, width: '10rem' },
+  { key: 'last_seen', label: 'last seen', align: 'right', sortable: true },
+]
 
 function fpKey(row) {
   return row.ja4 || row.ja3
@@ -88,18 +132,42 @@ function fpKey(row) {
 <template>
   <div>
     <header class="head">
-      <h1>Browse fingerprints</h1>
-      <p>
+      <h1>Browse the corpus</h1>
+      <p v-if="!isDomains">
         Every fingerprint in the corpus, newest observations included. Sort by raw volume, by how
         many distinct server names the fingerprint reached, or by spread.
+      </p>
+      <p v-else>
+        Every server name observed in the corpus. Sort by raw volume, by how many distinct
+        fingerprints reached the name, by spread, or by recency.
       </p>
     </header>
 
     <div class="toolbar">
-      <span class="label">sort</span>
-      <div class="group" role="group" aria-label="Sort fingerprints by">
+      <span class="label">view</span>
+      <div class="group" role="group" aria-label="Browse fingerprints or domains">
         <button
-          v-for="s in SORTS"
+          v-for="t in TABS"
+          :key="t.value"
+          type="button"
+          class="control opt"
+          :aria-pressed="tab === t.value"
+          @click="setTab(t.value)"
+        >
+          {{ t.label }}
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="label">sort</span>
+      <div
+        class="group"
+        role="group"
+        :aria-label="isDomains ? 'Sort domains by' : 'Sort fingerprints by'"
+      >
+        <button
+          v-for="s in sortOptions"
           :key="s.value"
           type="button"
           class="control opt"
@@ -112,7 +180,8 @@ function fpKey(row) {
     </div>
 
     <DataTable
-      :columns="columns"
+      v-if="!isDomains"
+      :columns="fpColumns"
       :rows="items"
       :loading="loading"
       :error="error"
@@ -141,6 +210,29 @@ function fpKey(row) {
       </template>
     </DataTable>
 
+    <DataTable
+      v-else
+      :columns="domainColumns"
+      :rows="items"
+      :loading="loading"
+      :error="error"
+      row-key="sni"
+      :sort-key="sort"
+      caption="All observed server names"
+      empty-text="No server names in the corpus yet."
+      @sort="setSort"
+    >
+      <template #cell-sni="{ value }">
+        <RouterLink :to="{ name: 'sni', params: { name: value } }">{{ value }}</RouterLink>
+      </template>
+      <template #cell-observations="{ value }">{{ formatInt(value) }}</template>
+      <template #cell-unique_fingerprints="{ value }">{{ formatInt(value) }}</template>
+      <template #cell-spread="{ value }">
+        <SpreadBar :value="value" width="4rem" label="fingerprint spread" />
+      </template>
+      <template #cell-last_seen="{ value }">{{ formatDate(value) }}</template>
+    </DataTable>
+
     <Pagination
       :offset="offset"
       :limit="PAGE"
@@ -149,11 +241,20 @@ function fpKey(row) {
       @update="setOffset"
     />
 
-    <p class="footnote">
+    <p v-if="!isDomains" class="footnote">
       <strong>Spread</strong> is the normalised Shannon entropy of a fingerprint's SNI
       distribution: 0 = always the same domain, 1 = evenly spread across many unrelated domains.
       High spread on a high-volume fingerprint indicates tooling, not a browser. Low volume makes
       spread unreliable — a fingerprint seen twice, on two domains, scores 1.0 and means nothing.
+    </p>
+    <p v-else class="footnote">
+      <strong>Spread</strong> here is the mirror metric: the normalised Shannon entropy of the
+      fingerprints reaching a domain. 0 = essentially one client stack; the middle range is what
+      ordinary traffic looks like, an uneven mix of real clients; near 1.0 means many distinct
+      fingerprints in near-equal proportion. On a busy public site that can be normal, but on a
+      login or API endpoint it is the shape of one actor rotating fingerprints. Read it against
+      <span class="mono">observations</span> and <span class="mono">unique fingerprints</span> —
+      1.0 over three connections is noise, 1.0 over sixty thousand is a finding.
     </p>
   </div>
 </template>
@@ -181,18 +282,21 @@ function fpKey(row) {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--c-fg-muted);
+  /* Keep the two segmented rows left-aligned with each other. */
+  min-width: 2.5rem;
 }
 
 .group {
   display: inline-flex;
 }
 
+/* Collapse the shared 1px borders between segments. */
 .opt + .opt {
   margin-left: -1px;
 }
 
 .opt[aria-pressed="true"] {
-  position: relative;
+  position: relative; /* keep the accent border above its neighbours */
   z-index: 1;
 }
 </style>

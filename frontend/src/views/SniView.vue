@@ -2,10 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { api, ApiError } from '../api.js'
-import { formatInt, formatShare, truncateMiddle } from '../format.js'
+import { formatDate, formatInt, formatShare, truncateMiddle } from '../format.js'
 import DataTable from '../components/DataTable.vue'
 import StatGrid from '../components/StatGrid.vue'
 import CopyText from '../components/CopyText.vue'
+import SpreadBar from '../components/SpreadBar.vue'
 import Pagination from '../components/Pagination.vue'
 
 const route = useRoute()
@@ -66,6 +67,16 @@ const statItems = computed(() => {
       label: 'unique fingerprints',
       value: formatInt(sni.value.unique_fingerprints),
     },
+    {
+      key: 'spread',
+      label: 'spread',
+      value: sni.value.spread,
+      title:
+        '0 = essentially one client stack reaches this name, 1 = many distinct fingerprints ' +
+        'in near-equal proportion. Only meaningful against the observation count.',
+    },
+    { key: 'first_seen', label: 'first seen', value: formatDate(sni.value.first_seen) },
+    { key: 'last_seen', label: 'last seen', value: formatDate(sni.value.last_seen) },
   ]
 })
 
@@ -113,7 +124,20 @@ function fpKey(row) {
 
       <section class="section">
         <h2>Statistics</h2>
-        <StatGrid :items="statItems" />
+        <StatGrid :items="statItems">
+          <template #value-spread="{ item }">
+            <SpreadBar :value="item.value" width="5rem" label="fingerprint spread" />
+          </template>
+        </StatGrid>
+        <p class="footnote">
+          <strong>Spread</strong> is the mirror of the fingerprint metric: the normalised Shannon
+          entropy of the fingerprints reaching this name. 0 means essentially one client stack; the
+          middle range is what ordinary traffic looks like; near 1.0 means many distinct
+          fingerprints in near-equal proportion — normal on a busy public site, but on a login or
+          API endpoint it is the shape of one actor rotating fingerprints. Read it against the
+          observation count: 1.0 over three connections is noise, 1.0 over sixty thousand is a
+          finding.
+        </p>
       </section>
 
       <section class="section">

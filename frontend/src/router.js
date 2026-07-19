@@ -26,7 +26,8 @@ const routes = [
     path: '/browse',
     name: 'browse',
     component: () => import('./views/BrowseView.vue'),
-    meta: { title: `browse fingerprints — ${SITE}` },
+    // No meta title: the view titles itself from the ?tab= mode, and a
+    // meta title would overwrite it on every sort/page change.
   },
   {
     path: '/docs',

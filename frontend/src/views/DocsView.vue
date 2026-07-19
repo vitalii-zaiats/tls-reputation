@@ -21,7 +21,7 @@ const endpoints = [
   {
     id: 'sni',
     sig: 'GET /api/v1/sni/{domain}?limit=&offset=',
-    desc: 'Which fingerprints have been observed reaching this server name. limit defaults to 50, offset to 0.',
+    desc: 'Which fingerprints have been observed reaching this server name, plus the spread of that name. limit defaults to 50, offset to 0.',
     curl: `curl -s "${BASE}/sni/example.com?limit=50&offset=0"`,
   },
   {
@@ -32,9 +32,9 @@ const endpoints = [
   },
   {
     id: 'snis',
-    sig: 'GET /api/v1/snis?limit=&offset=',
-    desc: 'Paginated list of all observed server names, most contacted first.',
-    curl: `curl -s "${BASE}/snis?limit=50&offset=0"`,
+    sig: 'GET /api/v1/snis?sort=&limit=&offset=',
+    desc: 'Paginated list of all observed server names. sort is one of observations, unique_fingerprints, spread, last_seen — always descending, and defaults to observations.',
+    curl: `curl -s "${BASE}/snis?sort=spread&limit=50&offset=0"`,
   },
   {
     id: 'search',
@@ -73,10 +73,19 @@ const sniExample = `{
   "sni": "example.com",
   "observations": 51221,
   "unique_fingerprints": 88,
+  "spread": 0.83,
+  "first_seen": "2026-01-04T10:22:31Z",
+  "last_seen": "2026-07-19T08:00:00Z",
   "top_fingerprints": [
     {"ja3": "cd08e...", "ja4": "t13d1516h2_...", "count": 1201, "share": 0.023}
   ]
 }`
+
+const spreadCurl = `# fingerprints that roam the most domains
+curl -s "${BASE}/fingerprints?sort=spread&limit=10"
+
+# domains reached by the widest mix of fingerprints
+curl -s "${BASE}/snis?sort=spread&limit=10"`
 
 const copied = ref('')
 let timer = null
@@ -196,6 +205,59 @@ onBeforeUnmount(() => {
           @click="copy('sni', sniExample)"
         >
           {{ copied === 'sni' ? 'copied' : copied === 'sni:failed' ? 'failed' : 'copy' }}
+        </button>
+      </div>
+      <dl class="kv fields">
+        <dt>spread</dt>
+        <dd>
+          Normalised Shannon entropy of the fingerprint distribution, 0..1 — the mirror of the
+          field on the fingerprint object. See below.
+        </dd>
+        <dt>unique_fingerprints</dt>
+        <dd>
+          True count of distinct fingerprints seen reaching the name;
+          <code>top_fingerprints</code> is truncated to the most frequent.
+        </dd>
+        <dt>timestamps</dt>
+        <dd>ISO 8601, always UTC.</dd>
+      </dl>
+    </section>
+
+    <section class="section">
+      <h2>Spread reads in two directions</h2>
+      <p>
+        The same statistic is computed over two different distributions, and the two read in
+        opposite ways.
+      </p>
+      <p>
+        On a <strong>fingerprint</strong>, spread is entropy over the domains it reaches.
+        <code>0</code> is one client that only ever talks to one host; <code>1</code> is one client
+        stack roaming many unrelated domains. High spread on a high-volume fingerprint means
+        tooling, not a browser.
+      </p>
+      <p>
+        On a <strong>domain</strong>, spread is entropy over the fingerprints that reach it.
+        <code>0</code> means essentially one client stack reaches it. The middle of the range,
+        roughly <code>0.3</code>–<code>0.7</code>, is what ordinary traffic looks like: a mix of
+        real clients, unevenly distributed. Near <code>1.0</code> means many distinct fingerprints
+        in near-equal proportion — unremarkable on a busy public site, but on a login or API
+        endpoint it is the signature of one actor rotating fingerprints, where the variety itself
+        is the tell.
+      </p>
+      <p>
+        In both directions the number is meaningless without volume. Always read it against
+        <code>observations</code> and the relevant unique count: spread <code>1.0</code> over three
+        connections is noise; spread <code>1.0</code> over sixty thousand is a finding.
+      </p>
+      <div class="codeblock">
+        <pre><code>{{ spreadCurl }}</code></pre>
+        <button
+          type="button"
+          class="control copy"
+          aria-label="Copy the spread example requests"
+          @click="copy('spread', spreadCurl)"
+        >
+          {{ copied === 'spread' ? 'copied' : copied === 'spread:failed' ? 'failed' : 'copy' }}
         </button>
       </div>
     </section>

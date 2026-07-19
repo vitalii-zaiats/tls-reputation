@@ -98,8 +98,8 @@ export const api = {
   fingerprints: ({ sort, limit, offset, ...opts } = {}) =>
     request('/fingerprints', { params: { sort, limit, offset }, ...opts }),
 
-  snis: ({ limit, offset, ...opts } = {}) =>
-    request('/snis', { params: { limit, offset }, ...opts }),
+  snis: ({ sort, limit, offset, ...opts } = {}) =>
+    request('/snis', { params: { sort, limit, offset }, ...opts }),
 
   search: (q, opts) => request('/search', { params: { q }, ...opts }),
 

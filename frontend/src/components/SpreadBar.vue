@@ -1,6 +1,8 @@
 <script setup>
 /**
- * Spread = normalised Shannon entropy of a fingerprint's SNI distribution.
+ * Spread = normalised Shannon entropy of a distribution. For a fingerprint that
+ * is its SNI distribution; for a domain it is the mirror — the distribution of
+ * fingerprints reaching it. Same bar, so `label` names which one is meant.
  * Rendered as the number plus a plain 1px-bordered bar — no gradient, no glow.
  */
 import { computed } from 'vue'
@@ -11,6 +13,8 @@ const props = defineProps({
   /** Hide the numeric readout when the table already has a spread column. */
   showNumber: { type: Boolean, default: true },
   width: { type: String, default: '6rem' },
+  /** Accessible name for the meter. */
+  label: { type: String, default: 'SNI spread' },
 })
 
 const clamped = computed(() => {
@@ -34,7 +38,7 @@ const text = computed(() => formatSpread(props.value))
       aria-valuemax="1"
       :aria-valuenow="clamped ?? undefined"
       :aria-valuetext="`spread ${text}`"
-      aria-label="SNI spread"
+      :aria-label="label"
     >
       <span v-if="clamped !== null" class="fill" :style="{ width: `${pct}%` }"></span>
     </span>

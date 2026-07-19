@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { api } from '../api.js'
-import { formatInt, formatSpread, truncateMiddle } from '../format.js'
+import { formatInt, truncateMiddle } from '../format.js'
 import LookupInput from '../components/LookupInput.vue'
 import DataTable from '../components/DataTable.vue'
 import SpreadBar from '../components/SpreadBar.vue'
@@ -11,6 +11,7 @@ const stats = ref(null)
 
 const promiscuous = ref({ rows: [], loading: true, error: null })
 const contacted = ref({ rows: [], loading: true, error: null })
+const varied = ref({ rows: [], loading: true, error: null })
 
 const fpColumns = [
   { key: 'ja4', label: 'fingerprint', mono: true },
@@ -23,6 +24,12 @@ const sniColumns = [
   { key: 'sni', label: 'sni', mono: true },
   { key: 'observations', label: 'obs', align: 'right' },
   { key: 'unique_fingerprints', label: 'fps', align: 'right' },
+]
+
+const variedColumns = [
+  { key: 'sni', label: 'domain', mono: true },
+  { key: 'unique_fingerprints', label: 'fps', align: 'right' },
+  { key: 'spread', label: 'spread', align: 'right', width: '9rem' },
 ]
 
 /** Prefer the JA4 label but fall back to JA3 for pre-JA4 corpus entries. */
@@ -47,6 +54,7 @@ async function load(target, fn) {
 onMounted(() => {
   load(promiscuous, () => api.fingerprints({ sort: 'spread', limit: 10 }))
   load(contacted, () => api.snis({ limit: 10 }))
+  load(varied, () => api.snis({ sort: 'spread', limit: 8 }))
 
   // Corpus size is supplementary; a failure here must not disturb the page.
   api
@@ -143,6 +151,36 @@ onMounted(() => {
         <p class="footnote">
           <span class="mono">fps</span> is the number of distinct fingerprints seen reaching that
           name.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Most varied domains</h2>
+        <DataTable
+          :columns="variedColumns"
+          :rows="varied.rows"
+          :loading="varied.loading"
+          :error="varied.error"
+          row-key="sni"
+          caption="Server names reached by the widest mix of fingerprints"
+          empty-text="No SNIs observed yet."
+        >
+          <template #cell-sni="{ value }">
+            <RouterLink :to="{ name: 'sni', params: { name: value } }">{{ value }}</RouterLink>
+          </template>
+          <template #cell-unique_fingerprints="{ value }">{{ formatInt(value) }}</template>
+          <template #cell-spread="{ value }">
+            <SpreadBar :value="value" width="3.5rem" label="fingerprint spread" />
+          </template>
+        </DataTable>
+        <p class="footnote">
+          Spread read the other way: entropy over the fingerprints reaching a name. Near 1.0 means
+          many clients in near-equal proportion — ordinary on a busy public site, telling on a
+          login endpoint. Weigh it against volume. See
+          <RouterLink :to="{ name: 'browse', query: { tab: 'domains', sort: 'spread' } }"
+            >browse domains</RouterLink
+          >
+          for the full list.
         </p>
       </section>
     </div>
