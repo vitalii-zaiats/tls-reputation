@@ -620,12 +620,18 @@ onMounted(() => {
    about a kilobyte. Two layers, both painted behind the content and both
    faded out at the edges so the section has no visible boundary. */
 
+/* Full-bleed and centred on the hero. The left edge is pinned to the hero's
+   horizontal centre, then pulled back by half its own (viewport-wide) width —
+   translateX must be NEGATIVE, or the whole layer slides a half-width off to
+   the right and the grid disappears past the edge. */
 .backdrop {
   position: absolute;
-  inset: calc(var(--sp-6) * -1) 50% auto;
+  top: calc(var(--sp-6) * -1);
+  bottom: auto;
+  left: 50%;
   width: 100vw;
   height: calc(100% + var(--sp-8));
-  transform: translateX(50%);
+  transform: translateX(-50%);
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
