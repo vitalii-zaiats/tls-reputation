@@ -683,7 +683,7 @@ onMounted(() => {
   :root:not([data-theme="dark"]) .glow {
     background: radial-gradient(
       60% 70% at 50% 0%,
-      color-mix(in srgb, var(--amber) 26%, transparent) 0%,
+      color-mix(in srgb, var(--amber) 15%, transparent) 0%,
       transparent 72%
     );
   }
@@ -698,7 +698,7 @@ onMounted(() => {
 :root[data-theme="light"] .glow {
   background: radial-gradient(
     60% 70% at 50% 0%,
-    color-mix(in srgb, var(--amber) 26%, transparent) 0%,
+    color-mix(in srgb, var(--amber) 15%, transparent) 0%,
     transparent 72%
   );
 }
