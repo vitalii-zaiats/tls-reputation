@@ -412,10 +412,17 @@ async def get_alpn() -> dict:
     rows = await db.alpn_distribution()
     total_fps = sum(r["fingerprints"] for r in rows) or 1
     total_obs = sum(int(r["observations"] or 0) for r in rows) or 1
+    corpus_snis = await db.sni_count()
 
     return {
         "total_fingerprints": total_fps,
         "total_observations": total_obs,
+        # The number of distinct domains in the whole corpus. Per-ALPN SNI
+        # counts are measured against this, NOT against each other: a domain
+        # reached by both a browser and a library appears under both, so the
+        # per-ALPN counts sum past this total and are not a partition.
+        "total_snis": corpus_snis,
+        "sni_counts_overlap": True,
         "items": [
             {
                 "alpn": list(r["alpn"]),
@@ -426,6 +433,11 @@ async def get_alpn() -> dict:
                 "share_of_observations": round(
                     int(r["observations"] or 0) / total_obs, 6
                 ),
+                "unique_snis": r["unique_snis"],
+                # Of every domain in the corpus, the fraction this ALPN class
+                # was seen reaching. Overlapping by construction — see
+                # `sni_counts_overlap`.
+                "share_of_snis": round(r["unique_snis"] / (corpus_snis or 1), 6),
             }
             for r in rows
         ],

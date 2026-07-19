@@ -103,6 +103,8 @@ const alpnColumns = [
   { key: 'share_of_fingerprints', label: 'share of fps', align: 'right' },
   { key: 'observations', label: 'observations', align: 'right' },
   { key: 'share_of_observations', label: 'share of obs', align: 'right' },
+  { key: 'unique_snis', label: 'domains', align: 'right' },
+  { key: 'share_of_snis', label: 'of all domains', align: 'right' },
 ]
 
 /**
@@ -126,6 +128,8 @@ const alpnRows = computed(() => {
     observations: item.observations,
     share_of_fingerprints: item.share_of_fingerprints,
     share_of_observations: item.share_of_observations,
+    unique_snis: item.unique_snis,
+    share_of_snis: item.share_of_snis,
     tint: tintFor(i, false),
   }))
 
@@ -138,6 +142,11 @@ const alpnRows = computed(() => {
       observations: sum('observations'),
       share_of_fingerprints: sum('share_of_fingerprints'),
       share_of_observations: sum('share_of_observations'),
+      // Domain counts overlap between offer lists, so they cannot be summed:
+      // adding them would double-count every domain more than one kind of
+      // client reached. null renders as an em dash.
+      unique_snis: null,
+      share_of_snis: null,
       tint: tintFor(0, true),
     })
   }
@@ -145,6 +154,12 @@ const alpnRows = computed(() => {
   return rows
 })
 
+/**
+ * Only fingerprints and observations can drive the bar. Domain counts overlap
+ * — one domain reached by both a browser and a library is counted under both —
+ * so they sum past the total and are not a share of a whole. Drawing them as
+ * segments of a 100% bar would be a lie about the data.
+ */
 function alpnShare(row) {
   const value =
     alpnBasis.value === 'observations' ? row.share_of_observations : row.share_of_fingerprints
@@ -311,13 +326,26 @@ onMounted(() => {
         <template #cell-share_of_fingerprints="{ value }">{{ formatShare(value) }}</template>
         <template #cell-observations="{ value }">{{ formatInt(value) }}</template>
         <template #cell-share_of_observations="{ value }">{{ formatShare(value) }}</template>
+        <template #cell-unique_snis="{ value }">
+          {{ value === null ? '—' : formatInt(value) }}
+        </template>
+        <template #cell-share_of_snis="{ value }">
+          {{ value === null ? '—' : formatShare(value) }}
+        </template>
       </DataTable>
 
       <p v-if="alpn.data" class="footnote">
         Shares are of {{ formatInt(alpn.data.total_fingerprints) }} distinct fingerprints and
-        {{ formatInt(alpn.data.total_observations) }} observations. The two columns disagree, and
-        the disagreement is informative: a handful of library fingerprints can account for a large
+        {{ formatInt(alpn.data.total_observations) }} observations. The two disagree, and the
+        disagreement is informative: a handful of library fingerprints can account for a large
         share of all connections.
+      </p>
+      <p v-if="alpn.data" class="footnote">
+        <strong>domains</strong> counts the distinct server names each offer list was seen
+        reaching, against {{ formatInt(alpn.data.total_snis) }} in the corpus. Unlike the other
+        two, these <em>overlap</em>: a domain reached by both a browser and a library is counted
+        under both, so the column sums past 100%. That is why the bar above can only be drawn per
+        fingerprint or per observation — those partition the corpus, and this does not.
       </p>
       <p class="footnote">
         JA4 cannot express any of this. It keeps only the first and last character of the

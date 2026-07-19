@@ -473,15 +473,46 @@ async def alpn_distribution() -> list[asyncpg.Record]:
     round is not the browser it claims to be. JA4 cannot express this — it
     keeps only the first and last character of the FIRST protocol, so `h2` and
     `h2, http/1.1` collapse to the same two characters.
+
+    Three measures, and they do not mean the same thing:
+
+      fingerprints  how many distinct client stacks offer this list
+      observations  how many connections they made
+      unique_snis   how many distinct domains those stacks reached
+
+    The first two partition the corpus and sum to the whole. The third does
+    NOT: a domain reached by both a browser and a library is counted under
+    both, so these sum past the total. Anything rendering this has to say so
+    rather than drawing it as a share of a whole.
     """
     async with pool().acquire() as conn:
         return await conn.fetch(
             """
-            SELECT alpn,
-                   count(*)          AS fingerprints,
-                   sum(observations) AS observations
-              FROM fingerprints
-             GROUP BY alpn
-             ORDER BY count(*) DESC, sum(observations) DESC
+            WITH per_fp AS (
+                SELECT alpn,
+                       count(*)          AS fingerprints,
+                       sum(observations) AS observations
+                  FROM fingerprints
+                 GROUP BY alpn
+            ), per_sni AS (
+                SELECT f.alpn, count(DISTINCT o.sni) AS unique_snis
+                  FROM fingerprints f
+                  JOIN observations o ON o.fingerprint_id = f.id
+                 GROUP BY f.alpn
+            )
+            SELECT per_fp.alpn,
+                   per_fp.fingerprints,
+                   per_fp.observations,
+                   coalesce(per_sni.unique_snis, 0) AS unique_snis
+              FROM per_fp
+              LEFT JOIN per_sni
+                     ON per_sni.alpn IS NOT DISTINCT FROM per_fp.alpn
+             ORDER BY per_fp.fingerprints DESC, per_fp.observations DESC
             """
         )
+
+
+async def sni_count() -> int:
+    """Distinct domains in the corpus — the denominator for per-ALPN SNI reach."""
+    async with pool().acquire() as conn:
+        return await conn.fetchval("SELECT count(*) FROM snis") or 0
