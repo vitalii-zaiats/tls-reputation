@@ -269,6 +269,13 @@ const noJa3Reason = computed(() => {
     <template v-else-if="fp">
       <header class="head">
         <h1>Fingerprint</h1>
+        <!-- When this JA4 matches the ground-truth catalog, name the client
+             outright: the anonymous hash becomes "Python requests on Alpine". -->
+        <p v-if="fp.known" class="known">
+          <span class="known-tag">known client</span>
+          <span class="known-name mono">{{ fp.known.name }}</span>
+          <span v-if="fp.known.env" class="known-env">{{ fp.known.env }}</span>
+        </p>
         <dl class="kv">
           <dt>JA4</dt>
           <dd><CopyText :value="fp.ja4" label="JA4 string" /></dd>
@@ -449,7 +456,37 @@ const noJa3Reason = computed(() => {
 
 <style scoped>
 .head h1 {
-  margin-bottom: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+
+/* Known-client banner: a named identity for a matched JA4. Amber accent, since
+   it is the one thing on the page that turns the hash into a name. */
+.known {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--border-width) solid var(--amber);
+  border-radius: var(--radius-chip);
+  background: var(--amber-soft);
+}
+.known-tag {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--link);
+}
+.known-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+.known-env {
+  font-size: var(--fs-sm);
+  color: var(--dim);
 }
 
 .head .links {

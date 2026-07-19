@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from .. import db
 from ..classify import sni_category
 from ..config import settings
+from ..known import known_client
 from ..tls.names import CIPHERS, CURVES, EXTENSIONS, SIG_ALGOS, decorate
 
 router = APIRouter(prefix="/api/v1", tags=["public"])
@@ -130,6 +131,8 @@ def _summary(row) -> dict:
         "unique_snis": row["unique_snis"],
         "spread": round(row["spread"], 4),
         "stability": _stability(row),
+        # Curated label if this JA4 matches a known client build. None otherwise.
+        "known": known_client(row["ja4"]),
         "first_seen": _iso(row["first_seen"]),
         "last_seen": _iso(row["last_seen"]),
     }
@@ -259,6 +262,7 @@ async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
                 "ja3": r["ja3"],
                 "ja4": r["ja4"],
                 "stability": _stability(r),
+                "known": known_client(r["ja4"]),
                 "count": r["count"],
                 "share": round(r["count"] / divisor, 6),
                 "first_seen": _iso(r["first_seen"]),

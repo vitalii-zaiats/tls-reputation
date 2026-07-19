@@ -1,0 +1,35 @@
+{
+  "_comment": "Curated JA4 -> known client, from the tools/fingerprint-matrix ground-truth runs (each client x base image against tls.peet.ws, cross-checked against this project's own engine). A JA4's ja4_b tracks the OpenSSL build (so it shifts by base image) and ja4_c tracks the library; labels name both. httpx and aiohttp share Python's ssl defaults and collapse to one JA4. Extend by running tools/fingerprint-matrix.",
+
+  "t13d3013h1_1d37bd780c83_8537cf56674e": { "name": "Python requests", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
+  "t13d3013h1_1d37bd780c83_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
+  "t13d3013_1d37bd780c83_5ae85263eb3b":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
+
+  "t13d1713h1_ab0a1bf427ad_8537cf56674e": { "name": "Python requests", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
+  "t13d1713h1_ab0a1bf427ad_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
+  "t13d1714h1_ab0a1bf427ad_5ae85263eb3b": { "name": "Python urllib (stdlib)", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
+
+  "t13d1712h1_ab0a1bf427ad_882d495ac381": { "name": "Python requests", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
+  "t13d1712h1_ab0a1bf427ad_8e6e362c5eac": { "name": "Python httpx / aiohttp", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
+  "t13d1713h1_ab0a1bf427ad_89ab6efea773": { "name": "Python urllib (stdlib)", "env": "Python 3.11, Alpine (musl, OpenSSL 3)" },
+
+  "t13d3514h1_bfa337485184_748dcdc9032a": { "name": "Python requests", "env": "Amazon Linux 2023 (OpenSSL 3)" },
+  "t13d3514h1_bfa337485184_412e5362642e": { "name": "Python httpx / aiohttp", "env": "Amazon Linux 2023 (OpenSSL 3)" },
+  "t13d3514_bfa337485184_0b913be0c715":   { "name": "Python urllib (stdlib)", "env": "Amazon Linux 2023 (OpenSSL 3)" },
+
+  "t12d497h1_730fb1b0ac6a_a1e935682795":  { "name": "Python httpx", "env": "Amazon Linux 2 — TLS 1.2 only (OpenSSL 1.0.2)" },
+  "t12d867_e18388e7f3a3_a1e935682795":    { "name": "Python urllib (stdlib)", "env": "Amazon Linux 2 — TLS 1.2 only (OpenSSL 1.0.2)" },
+
+  "t13d1812h1_85036bcba153_375ca2c5e164": { "name": "Python requests", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
+  "t13d1812h1_85036bcba153_1f22a2ca17c4": { "name": "Python httpx / aiohttp", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
+  "t13d1813h1_85036bcba153_fb8d5ffd48c1": { "name": "Python urllib (stdlib)", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
+
+  "t13d5910_a33745022dd6_1f22a2ca17c4":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
+  "t13d5911h1_a33745022dd6_1f22a2ca17c4": { "name": "Node.js fetch / undici", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
+  "t13d5211_b262b3658495_8e6e362c5eac":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 22 — bundled OpenSSL 3 (newer)" },
+  "t13d5212h1_b262b3658495_8e6e362c5eac": { "name": "Node.js fetch / undici", "env": "Node 22 — bundled OpenSSL 3 (newer)" },
+
+  "t13d1911h2_9dc949149365_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, CGO / go run — pure-Go TLS, same on any base image" },
+  "t13d1910h2_9dc949149365_97f8aa674fd9": { "name": "Go net/http", "env": "Go 1.20, CGO / go run — pure-Go TLS" },
+  "t13d1411h2_cbb2034c60b8_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, static build (CGO off) — distroless/scratch; a different cipher set" }
+}
