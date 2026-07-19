@@ -27,29 +27,44 @@ def _load() -> dict[str, dict]:
 _CATALOG = _load()
 
 
-def known_client(ja4: str | None) -> dict | None:
+# A browser's ALPN offer. A bare-ja4_b (cipher-list) match is trusted only when
+# the hello also advertises these: Chrome and Firefox both offer h2 then
+# http/1.1, optionally behind h3. A client that copied the cipher list but
+# offers only http/1.1, only h2, or no ALPN is NOT the browser — impersonation
+# tools and libraries reuse Chrome's ciphers without its ALPN. And JA4's ja4_a
+# cannot tell "h2" alone from "h2, http/1.1" (it encodes only the first
+# protocol), so the full ALPN list, not the JA4, is what settles it.
+_BROWSER_ALPN = frozenset(
+    {
+        ("h2", "http/1.1"),
+        ("h3", "h2", "http/1.1"),
+    }
+)
+
+
+def known_client(ja4: str | None, alpn: list[str] | None = None) -> dict | None:
     """Return {name, env} for a known JA4, or None. `label` is the two joined.
 
-    Three kinds of catalog key, tried most-specific first:
+    Two kinds of catalog key:
 
-      a_b_c  a full JA4, exact — right for a library whose ja4_c is stable.
-      a_b    a prefix (no third part) — matches any ja4_c, right for a browser
-             that permutes its extensions so ja4_c varies while its version and
-             cipher list (a_b) hold.
-      b      a bare cipher-list hash (12 hex, no 't', no '_') — matches any JA4
-             with that ja4_b regardless of ja4_a. A browser's cipher list is its
-             most stable signature: Chrome's ja4_b is the same whether it offers
-             16 or 17 extensions, but the two differ in ja4_a, so an a_b prefix
-             catches only one of them. Keyed only for cipher lists distinctive
-             to one client (Chrome, Firefox); libraries stay on exact keys.
+      a_b_c  a full JA4, exact — a library, whose whole hello (ja4_c included)
+             is stable, so the exact string is the identity.
+      b      a bare cipher-list hash (12 hex, no 't', no '_') — a browser's
+             cipher list, its most stable signature. It matches any JA4 with
+             that ja4_b, since a browser permutes extensions (varying ja4_a and
+             ja4_c) but not its ciphers. BUT the cipher list alone is not proof:
+             it is trusted only when `alpn` is a browser's (see _BROWSER_ALPN),
+             because impersonation tools copy the ciphers and not the ALPN.
+             Pass the fingerprint's ALPN or the browser match is skipped.
     """
     if not ja4:
         return None
     entry = _CATALOG.get(ja4)
     if entry is None:
         parts = ja4.split("_")
-        if len(parts) == 3:
-            entry = _CATALOG.get(f"{parts[0]}_{parts[1]}") or _CATALOG.get(parts[1])
+        # Bare ja4_b = a browser cipher-list signature, gated on a browser ALPN.
+        if len(parts) == 3 and alpn is not None and tuple(alpn) in _BROWSER_ALPN:
+            entry = _CATALOG.get(parts[1])
     if entry is None:
         return None
     name, env = entry["name"], entry.get("env", "")
