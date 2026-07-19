@@ -1,141 +1,44 @@
 ---
-- name: Check that the proxy sources exist locally
-  ansible.builtin.stat:
-    path: "{{ tlsrep_local_repo }}/proxy/{{ item }}"
-  register: _tlsrep_proxy_sources
-  loop:
-    - pyproject.toml
-    - tlsrep_proxy/main.py
-  delegate_to: localhost
-  become: false
-  run_once: true
-  check_mode: false
-  tags: [always]
+# --------------------------------------------------------------------------
+# Collector proxy: pull the prebuilt image from GHCR and run it.
+#
+# These are residential exit nodes. They are independent of the app host and
+# only need outbound reachability to https://<domain>/internal/v1/ingest.
+#
+# The image is standard-library Python with no dependencies to resolve, so a
+# proxy deploy is little more than a pull and a container swap.
+# --------------------------------------------------------------------------
 
-- name: Assert the proxy is deployable
+- name: Assert an image tag is set
   ansible.builtin.assert:
-    that: _tlsrep_proxy_sources.results | rejectattr('stat.exists') | list | length == 0
+    that:
+      - tlsrep_image_tag | default('') | length > 0
     fail_msg: >-
-      Missing proxy sources in {{ tlsrep_local_repo }}/proxy:
-      {{ _tlsrep_proxy_sources.results | rejectattr('stat.exists')
-         | map(attribute='item') | join(', ') }}.
+      tlsrep_image_tag is empty. Pass one explicitly
+      (-e tlsrep_image_tag=<git-sha>, which is what `make deploy` does) or
+      leave the `latest` default in group_vars/all.yml in place.
     quiet: true
   run_once: true
   tags: [always]
-
-- name: Install the uv toolchain
-  ansible.builtin.include_tasks: uv.yml
-  tags: [setup]
-
-# --------------------------------------------------------------------------
-# Service account and layout
-# --------------------------------------------------------------------------
-
-- name: Create the proxy service group
-  ansible.builtin.group:
-    name: "{{ tlsrep_proxy_group }}"
-    system: true
-    state: present
-  tags: [setup]
-
-- name: Create the proxy service user
-  ansible.builtin.user:
-    name: "{{ tlsrep_proxy_user }}"
-    group: "{{ tlsrep_proxy_group }}"
-    system: true
-    shell: /usr/sbin/nologin
-    home: "{{ tlsrep_proxy_dir }}"
-    create_home: false
-    state: present
-  tags: [setup]
-
-- name: Create the proxy application directory
-  ansible.builtin.file:
-    path: "{{ tlsrep_proxy_dir }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: "{{ tlsrep_proxy_group }}"
-    mode: "0750"
-  tags: [setup, deploy]
-
-# --------------------------------------------------------------------------
-# Ship the code
-# --------------------------------------------------------------------------
-
-- name: Synchronise the proxy source
-  ansible.posix.synchronize:
-    src: "{{ tlsrep_local_repo }}/proxy/"
-    dest: "{{ tlsrep_proxy_dir }}/"
-    archive: true
-    delete: true
-    compress: true
-    rsync_opts: "{{ tlsrep_proxy_rsync_excludes | map('regex_replace', '^', '--exclude=') | list }}"
-  become: false
-  notify: Restart tlsrep-proxy
-  tags: [deploy]
-
-- name: Resolve the Python dependencies
-  ansible.builtin.command:
-    cmd: /usr/local/bin/uv sync --frozen --no-dev --python {{ tlsrep_python_version }}
-    chdir: "{{ tlsrep_proxy_dir }}"
-  environment:
-    UV_PYTHON_INSTALL_DIR: /opt/uv-python
-    UV_CACHE_DIR: "{{ tlsrep_proxy_dir }}/.uv-cache"
-  become: false
-  register: _tlsrep_proxy_uv_sync
-  changed_when: >-
-    'Installed' in (_tlsrep_proxy_uv_sync.stderr | default('')) or
-    'Uninstalled' in (_tlsrep_proxy_uv_sync.stderr | default(''))
-  notify: Restart tlsrep-proxy
-  tags: [deploy]
-
-- name: Enforce ownership on the deployed tree
-  ansible.builtin.file:
-    path: "{{ tlsrep_proxy_dir }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: "{{ tlsrep_proxy_group }}"
-    mode: "0750"
-    recurse: true
-  tags: [deploy]
-
-# --------------------------------------------------------------------------
-# Configuration
-# --------------------------------------------------------------------------
-
-- name: Install the proxy environment file
-  ansible.builtin.template:
-    src: proxy.env.j2
-    dest: "{{ tlsrep_proxy_env_file }}"
-    owner: "{{ tlsrep_proxy_user }}"
-    group: "{{ tlsrep_proxy_group }}"
-    mode: "0640"
-  no_log: true
-  notify: Restart tlsrep-proxy
-  tags: [config, deploy]
-
-- name: Install the proxy systemd unit
-  ansible.builtin.template:
-    src: tlsrep-proxy.service.j2
-    dest: /etc/systemd/system/tlsrep-proxy.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart tlsrep-proxy
-  tags: [config, deploy]
 
 # --------------------------------------------------------------------------
 # Firewall. These are collector nodes, not web servers: the only inbound port
 # beyond SSH is the proxy's own listen port. 80 and 443 are explicitly denied
 # so a stray nginx install can never expose them.
+#
+# Caveat worth knowing: Docker publishes ports by DNAT in the DOCKER-USER
+# chain, which iptables traverses before UFW's chains. So the "allow" below
+# does not gate the container port -- the container is reachable with or
+# without it -- while the "deny" rules do still govern anything listening on
+# the host itself, which is what they were there for. The rules are kept
+# because they are correct as a statement of host policy; source restriction
+# for the collector port has to happen at the provider's firewall.
 # --------------------------------------------------------------------------
 
 - name: Allow the proxy listen port from anywhere
   community.general.ufw:
     rule: allow
-    port: "{{ tlsrep_proxy_listen_port | string }}"
+    port: "{{ tlsrep_proxy_port | string }}"
     proto: tcp
   when: tlsrep_proxy_allowed_sources | length == 0
   tags: [setup, firewall]
@@ -143,10 +46,20 @@
 - name: Allow the proxy listen port from permitted sources only
   community.general.ufw:
     rule: allow
-    port: "{{ tlsrep_proxy_listen_port | string }}"
+    port: "{{ tlsrep_proxy_port | string }}"
     proto: tcp
     src: "{{ item }}"
   loop: "{{ tlsrep_proxy_allowed_sources }}"
+  when: tlsrep_proxy_allowed_sources | length > 0
+  tags: [setup, firewall]
+
+- name: Warn that UFW cannot restrict a published container port
+  ansible.builtin.debug:
+    msg: >-
+      tlsrep_proxy_allowed_sources is set, but the collector runs in a
+      container with a published port. Docker's DNAT happens in DOCKER-USER,
+      ahead of UFW, so these rules will not actually block other sources.
+      Enforce the restriction at your provider's firewall or security group.
   when: tlsrep_proxy_allowed_sources | length > 0
   tags: [setup, firewall]
 
@@ -158,10 +71,68 @@
   loop: ["80", "443"]
   tags: [setup, firewall]
 
-- name: Enable the proxy service
-  ansible.builtin.systemd_service:
-    name: tlsrep-proxy
-    enabled: true
+# --------------------------------------------------------------------------
+# The container.
+# --------------------------------------------------------------------------
+
+- name: Run the collector proxy container
+  community.docker.docker_container:
+    name: "{{ tlsrep_proxy_container_name }}"
+    image: "{{ tlsrep_proxy_image }}"
+    # See roles/backend/tasks/main.yml for why this is computed from the tag.
+    pull: "{{ tlsrep_image_pull }}"
+
+    # The proxy image carries no HEALTHCHECK -- there is nothing to probe that
+    # would not itself open a tunnel -- so `started` is as far as this can go.
     state: started
-    daemon_reload: true
+    restart_policy: unless-stopped
+
+    # 0.0.0.0, unlike every other container here: remote clients connect to the
+    # collector directly.
+    published_ports:
+      - "{{ tlsrep_proxy_bind_address }}:{{ tlsrep_proxy_port }}:{{ tlsrep_proxy_container_port }}"
+
+    env: "{{ _tlsrep_proxy_env | combine(tlsrep_proxy_extra_env) }}"
+
+    # --- hardening ------------------------------------------------------
+    # Batches live in memory and logs go to stdout, so nothing needs to be
+    # written anywhere.
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=32m"
+    # A high port needs no capability to bind.
+    cap_drop: [ALL]
+    security_opts:
+      - "no-new-privileges:true"
+
+    # --- resource limits ------------------------------------------------
+    memory: "{{ tlsrep_proxy_memory_max }}"
+    memory_swap: "{{ tlsrep_proxy_memory_max }}"
+    pids_limit: "{{ tlsrep_proxy_pids_limit }}"
+    ulimits:
+      - "nofile:{{ tlsrep_proxy_nofile_limit }}:{{ tlsrep_proxy_nofile_limit }}"
+
+    log_driver: json-file
+    log_options:
+      max-size: "{{ tlsrep_docker_log_max_size | default('10m') }}"
+      max-file: "{{ tlsrep_docker_log_max_file | default(3) | string }}"
+
+    labels:
+      com.tls-reputation.component: proxy
+      com.tls-reputation.tag: "{{ tlsrep_image_tag }}"
+
+    # Long enough for the flush loop to drain the batch buffer. Without it
+    # every redeploy silently drops up to TLSREP_BATCH_SIZE observations.
+    stop_timeout: 30
+  vars:
+    _tlsrep_proxy_env:
+      TLSREP_LISTEN_HOST: "0.0.0.0"
+      TLSREP_LISTEN_PORT: "{{ tlsrep_proxy_container_port | string }}"
+      TLSREP_INGEST_URL: "{{ tlsrep_proxy_ingest_url }}"
+      TLSREP_INGEST_KEY: "{{ tlsrep_ingest_key }}"
+      TLSREP_BATCH_SIZE: "{{ tlsrep_proxy_batch_size | string }}"
+      TLSREP_FLUSH_INTERVAL: "{{ tlsrep_proxy_flush_interval | string }}"
+      TLSREP_LOG_LEVEL: "{{ tlsrep_proxy_log_level }}"
+  # The env dict carries the ingest key.
+  no_log: true
   tags: [deploy]

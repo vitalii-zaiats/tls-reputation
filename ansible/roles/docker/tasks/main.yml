@@ -1,0 +1,147 @@
+---
+# --------------------------------------------------------------------------
+# Docker Engine from the upstream apt repository.
+#
+# Everything this project deploys is a prebuilt image pulled from GHCR, so
+# this role is a prerequisite of backend, frontend and proxy alike. Nothing is
+# ever built here — `docker buildx` runs on the laptop, driven by the repo's
+# Makefile.
+# --------------------------------------------------------------------------
+
+- name: Map the kernel architecture to a Debian one
+  ansible.builtin.set_fact:
+    _tlsrep_deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
+  tags: [always]
+
+- name: Create the apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [setup]
+
+- name: Install the Docker apt signing key
+  ansible.builtin.get_url:
+    url: "{{ tlsrep_docker_apt_key_url }}"
+    dest: "{{ tlsrep_docker_apt_key_path }}"
+    owner: root
+    group: root
+    # 0644, not 0600: apt drops privileges to _apt before reading it.
+    mode: "0644"
+  tags: [setup]
+
+- name: Add the Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ _tlsrep_deb_arch }} signed-by={{ tlsrep_docker_apt_key_path }}]
+      {{ tlsrep_docker_apt_repo_url }} {{ ansible_facts['distribution_release'] }} stable
+    filename: docker
+    state: present
+    update_cache: true
+  tags: [setup]
+
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    name: "{{ tlsrep_docker_packages + tlsrep_docker_python_packages }}"
+    state: present
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Daemon configuration. Log rotation is the important part: json-file has no
+# rotation by default and these containers run indefinitely.
+# --------------------------------------------------------------------------
+
+- name: Configure the Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    # A malformed daemon.json makes dockerd refuse to start, which on a host
+    # whose entire workload is containers is a total outage. Parse it here.
+    validate: "python3 -c \"import json,sys; json.load(open(sys.argv[1]))\" %s"
+  notify: Restart docker
+  tags: [setup, config]
+
+- name: Ensure Docker is enabled and running
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+  tags: [setup]
+
+# The daemon has to be running with the final bridge configuration before any
+# container task tries to publish a port on it.
+- name: Apply the pending Docker restart
+  ansible.builtin.meta: flush_handlers
+  tags: [setup, config]
+
+- name: Add accounts to the docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ tlsrep_docker_users }}"
+  when: tlsrep_docker_users | length > 0
+  tags: [setup]
+
+# --------------------------------------------------------------------------
+# Registry authentication.
+#
+# The tls-reputation packages on GHCR are public, so an anonymous pull works
+# and this step is optional — which is exactly why it is conditional rather
+# than required. Define `vault_ghcr_token` in a group vault and login starts
+# happening; leave it out and deploys still work against public packages.
+#
+# Make a package private and the token stops being optional: without it the
+# pull fails with "denied", not with anything that names authentication.
+# --------------------------------------------------------------------------
+
+- name: Authenticate to the container registry
+  community.docker.docker_login:
+    registry_url: "{{ tlsrep_docker_registry }}"
+    username: "{{ tlsrep_ghcr_username }}"
+    password: "{{ tlsrep_ghcr_token }}"
+    reauthorize: false
+    state: present
+  when:
+    - tlsrep_ghcr_token | default('') | length > 0
+    - tlsrep_ghcr_username | default('') | length > 0
+  # The token would otherwise be echoed in the task arguments.
+  no_log: true
+  tags: [setup, deploy]
+
+- name: Report that registry authentication was skipped
+  ansible.builtin.debug:
+    msg: >-
+      No vault_ghcr_token defined, so no docker login was performed. This is
+      fine while the {{ tlsrep_docker_registry }} packages are public. If a
+      pull fails with "denied" or "unauthorized", set vault_ghcr_token to a
+      GitHub PAT with read:packages — see ansible/README.md.
+  when: tlsrep_ghcr_token | default('') | length == 0
+  tags: [setup, deploy]
+
+# --------------------------------------------------------------------------
+# Housekeeping. A moving `latest` orphans the previous image on every deploy;
+# without pruning the disk fills up silently over months.
+# --------------------------------------------------------------------------
+
+- name: Schedule a weekly image prune
+  ansible.builtin.cron:
+    name: tlsrep-docker-prune
+    # -a would also remove images that are tagged but not running, which is
+    # what makes rollback to a previous tag instant. `until` keeps a window of
+    # them; only dangling layers older than that actually go.
+    job: >-
+      /usr/bin/docker image prune --force --filter until={{ tlsrep_docker_prune_until }}
+      >/dev/null 2>&1
+    weekday: "{{ tlsrep_docker_prune_weekday | string }}"
+    hour: "{{ tlsrep_docker_prune_hour | string }}"
+    minute: "17"
+    user: root
+    cron_file: tlsrep-docker-prune
+    state: "{{ 'present' if tlsrep_docker_prune_enabled else 'absent' }}"
+  tags: [setup, config]

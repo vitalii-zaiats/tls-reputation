@@ -1,34 +1,30 @@
 ---
-tlsrep_proxy_user: tlsrep-proxy
-tlsrep_proxy_group: tlsrep-proxy
-tlsrep_proxy_dir: "{{ tlsrep_install_root }}/proxy"
-tlsrep_proxy_venv: "{{ tlsrep_proxy_dir }}/.venv"
-tlsrep_proxy_env_file: "{{ tlsrep_config_dir }}/proxy.env"
+tlsrep_proxy_container_name: tlsrep-proxy
 
-# Entrypoint module, run with `python -m`.
-tlsrep_proxy_module: tlsrep_proxy.main
+tlsrep_proxy_image_repo: "{{ tlsrep_image_base }}-proxy"
+tlsrep_proxy_image: "{{ tlsrep_proxy_image_repo }}:{{ tlsrep_image_tag }}"
 
-tlsrep_proxy_listen_port: 18443
+# The one container in this project published on a routable address: remote
+# clients dial the collector directly, there is no nginx in front of it.
+tlsrep_proxy_bind_address: "0.0.0.0"
+tlsrep_proxy_port: 18443
+# The port inside the image; the Dockerfile defaults TLSREP_LISTEN_PORT to it.
+tlsrep_proxy_container_port: 24761
+
 tlsrep_proxy_ingest_url: "https://{{ tlsrep_domain }}/internal/v1/ingest"
 tlsrep_proxy_batch_size: 200
 tlsrep_proxy_flush_interval: 15
+tlsrep_proxy_log_level: INFO
 
 tlsrep_proxy_memory_max: 512M
-tlsrep_proxy_tasks_max: 4096
+tlsrep_proxy_pids_limit: 4096
+# A CONNECT proxy holds two sockets per tunnelled connection, so the file
+# descriptor limit is the binding constraint, not memory.
 tlsrep_proxy_nofile_limit: 65535
 
-# Empty means "any source may connect to the listen port".
+# Empty means "any source may connect to the listen port". See the note in
+# group_vars/tlsrep_proxy/main.yml about what UFW can and cannot enforce for a
+# published container port.
 tlsrep_proxy_allowed_sources: []
 
-tlsrep_uv_version: "0.5.14"
-tlsrep_python_version: "3.13"
-
-tlsrep_proxy_rsync_excludes:
-  - ".venv/"
-  - "__pycache__/"
-  - "*.pyc"
-  - ".pytest_cache/"
-  - ".ruff_cache/"
-  - ".mypy_cache/"
-  - ".env"
-  - "tests/"
+tlsrep_proxy_extra_env: {}

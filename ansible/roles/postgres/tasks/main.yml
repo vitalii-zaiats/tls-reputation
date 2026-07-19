@@ -39,6 +39,20 @@
   notify: Restart postgresql
   tags: [config]
 
+# Traffic from a container to the host's bridge address hits the INPUT chain,
+# where the `common` role's default-deny applies. Published container ports
+# bypass UFW; this direction does not. Without this rule the backend container
+# hangs on connect with no log line anywhere obvious.
+- name: Allow the Docker bridge to reach PostgreSQL
+  community.general.ufw:
+    rule: allow
+    src: "{{ tlsrep_docker_bridge_subnet }}"
+    to_ip: "{{ tlsrep_docker_bridge_ip }}"
+    port: "{{ tlsrep_pg_port | string }}"
+    proto: tcp
+    comment: tlsrep backend container to postgres
+  tags: [setup, firewall]
+
 - name: Restrict host-based auth to local connections
   ansible.builtin.template:
     src: pg_hba.conf.j2

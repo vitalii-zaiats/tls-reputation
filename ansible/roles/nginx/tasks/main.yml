@@ -34,14 +34,9 @@
     mode: "0755"
   tags: [setup, tls]
 
-- name: Create the web root
-  ansible.builtin.file:
-    path: "{{ tlsrep_frontend_root }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user | default('root') }}"
-    group: www-data
-    mode: "0755"
-  tags: [setup]
+# No web root is created any more. The SPA lives inside the frontend
+# container and this nginx only ever proxies to it -- the sole path it still
+# serves from disk is the ACME challenge directory above.
 
 - name: Open the web ports
   community.general.ufw:

@@ -1,0 +1,16 @@
+---
+# ---------------------------------------------------------------------------
+# Frontend configuration. No secrets, so there is no vault file for this group.
+#
+# The image is nginx serving the built SPA. It knows nothing about the API:
+# TLS, Let's Encrypt, the security headers and the /api/ + /internal/ reverse
+# proxying all belong to the *host* nginx that the `nginx` role configures.
+# ---------------------------------------------------------------------------
+
+# Published on loopback only. The host nginx proxies / to this.
+tlsrep_frontend_bind_host: 127.0.0.1
+tlsrep_frontend_bind_port: 8080
+
+# Serving static files out of tmpfs-backed nginx costs almost nothing.
+tlsrep_frontend_memory_max: 256M
+tlsrep_frontend_pids_limit: 128

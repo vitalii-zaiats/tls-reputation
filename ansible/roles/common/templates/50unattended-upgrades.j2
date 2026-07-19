@@ -12,6 +12,11 @@ Unattended-Upgrade::Allowed-Origins {
 Unattended-Upgrade::Package-Blacklist {
     // PostgreSQL restarts on upgrade; do that during a deliberate window.
     "postgresql-16";
+    // Likewise dockerd. live-restore means containers survive a daemon
+    // restart, but an unattended engine upgrade on a host whose entire
+    // workload is containers is still not something to find out about later.
+    "docker-ce";
+    "containerd.io";
 };
 
 Unattended-Upgrade::AutoFixInterruptedDpkg "true";

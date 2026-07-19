@@ -2,9 +2,18 @@
 tlsrep_pg_version: 16
 tlsrep_pg_conf_dir: "/etc/postgresql/{{ tlsrep_pg_version }}/main"
 
-# Loopback only. Nothing outside this host ever speaks to the database; the
-# API is the only client and it runs alongside it.
-tlsrep_pg_listen_addresses: "127.0.0.1"
+# Loopback plus the Docker bridge gateway. Nothing outside this host ever
+# speaks to the database -- but the API is now a container, and from inside a
+# container 127.0.0.1 is the container itself, so it reaches PostgreSQL across
+# docker0 instead. The bridge subnet is pinned by the `docker` role precisely
+# so this address and the pg_hba entry below can name it.
+#
+# This is the only concession the database makes to containerisation. It is
+# still not on any routable interface, and pg_hba only trusts the bridge.
+tlsrep_docker_bridge_ip: "172.17.0.1"
+tlsrep_docker_bridge_subnet: "172.17.0.0/16"
+
+tlsrep_pg_listen_addresses: "127.0.0.1,{{ tlsrep_docker_bridge_ip }}"
 tlsrep_pg_port: 5432
 
 # Modest tuning for a small VPS. Adjust to the box.

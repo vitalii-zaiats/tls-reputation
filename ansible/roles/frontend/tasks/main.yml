@@ -1,135 +1,79 @@
 ---
 # --------------------------------------------------------------------------
-# Build locally. Node never touches the target host -- we ship the compiled
-# dist/ and nothing else.
+# Frontend: pull the prebuilt SPA image from GHCR and run it.
+#
+# No Node, no npm, no build step and no web root on the host. The image is
+# nginx with the Vite output baked in, built on the laptop by
+# `make push-frontend`. VITE_API_BASE is therefore fixed at *image build* time,
+# not at deploy time -- changing it means a rebuild, not a re-run of this role.
+#
+# The container's nginx serves static files and nothing else. TLS, the security
+# headers, rate limiting and the /api/ + /internal/ proxying belong to the host
+# nginx configured by the `nginx` role.
 # --------------------------------------------------------------------------
 
-- name: Check that the frontend sources exist locally
-  ansible.builtin.stat:
-    path: "{{ tlsrep_frontend_local_dir }}/{{ item }}"
-  register: _tlsrep_frontend_sources
-  loop:
-    - package.json
-    - src/main.js
-  delegate_to: localhost
-  become: false
-  run_once: true
-  check_mode: false
-  tags: [always]
-
-- name: Assert the frontend is buildable
+- name: Assert an image tag is set
   ansible.builtin.assert:
-    that: _tlsrep_frontend_sources.results | rejectattr('stat.exists') | list | length == 0
+    that:
+      - tlsrep_image_tag | default('') | length > 0
     fail_msg: >-
-      Missing frontend sources in {{ tlsrep_frontend_local_dir }}:
-      {{ _tlsrep_frontend_sources.results | rejectattr('stat.exists')
-         | map(attribute='item') | join(', ') }}.
-      index.html loads /src/main.js, so the build produces an empty bundle
-      without it.
+      tlsrep_image_tag is empty. Pass one explicitly
+      (-e tlsrep_image_tag=<git-sha>, which is what `make deploy` does) or
+      leave the `latest` default in group_vars/all.yml in place.
     quiet: true
   run_once: true
   tags: [always]
 
-- name: Check for a lockfile
-  ansible.builtin.stat:
-    path: "{{ tlsrep_frontend_local_dir }}/package-lock.json"
-  register: _tlsrep_frontend_lock
-  delegate_to: localhost
-  become: false
-  run_once: true
-  check_mode: false
-  tags: [deploy]
+- name: Run the frontend container
+  community.docker.docker_container:
+    name: "{{ tlsrep_frontend_container_name }}"
+    image: "{{ tlsrep_frontend_image }}"
+    # See roles/backend/tasks/main.yml for why this is computed from the tag.
+    pull: "{{ tlsrep_image_pull }}"
 
-- name: Warn when no lockfile is present
-  ansible.builtin.debug:
-    msg: >-
-      No package-lock.json in {{ tlsrep_frontend_local_dir }}; falling back to
-      `npm install`, which does not pin transitive dependencies. Commit a
-      lockfile so builds are reproducible.
-  when: not _tlsrep_frontend_lock.stat.exists
-  run_once: true
-  tags: [deploy]
+    state: healthy
+    healthy_wait_timeout: "{{ tlsrep_frontend_healthy_timeout }}"
 
-- name: Install the frontend dependencies
-  ansible.builtin.command:
-    cmd: >-
-      npm {{ 'ci' if (tlsrep_frontend_npm_ci and _tlsrep_frontend_lock.stat.exists) else 'install' }}
-    chdir: "{{ tlsrep_frontend_local_dir }}"
-  delegate_to: localhost
-  become: false
-  run_once: true
-  when: tlsrep_frontend_build
-  register: _tlsrep_npm_install
-  changed_when: "'up to date' not in (_tlsrep_npm_install.stdout | default(''))"
-  tags: [deploy]
+    restart_policy: unless-stopped
 
-- name: Build the SPA
-  ansible.builtin.command:
-    cmd: npm run build
-    chdir: "{{ tlsrep_frontend_local_dir }}"
-  environment:
-    VITE_API_BASE: "{{ tlsrep_frontend_api_base }}"
-  delegate_to: localhost
-  become: false
-  run_once: true
-  when: tlsrep_frontend_build
-  changed_when: true
-  tags: [deploy]
+    published_ports:
+      - "{{ tlsrep_frontend_bind_host }}:{{ tlsrep_frontend_bind_port }}:{{ tlsrep_frontend_container_port }}"
 
-- name: Confirm the build artifact exists
-  ansible.builtin.stat:
-    path: "{{ tlsrep_frontend_dist }}/index.html"
-  register: _tlsrep_dist
-  delegate_to: localhost
-  become: false
-  run_once: true
-  tags: [deploy]
+    # --- hardening ------------------------------------------------------
+    # nginx needs somewhere for its pid file and its proxy/fastcgi scratch
+    # directories, both of which a read-only rootfs would reject. tmpfs gives
+    # it exactly those and nothing else -- the served bundle stays on the
+    # read-only image layer where nothing can rewrite it.
+    read_only: true
+    tmpfs:
+      - "/var/cache/nginx:rw,nosuid,size=32m"
+      - "/var/run:rw,noexec,nosuid,size=4m"
+      - "/tmp:rw,noexec,nosuid,size=16m"
+    # The master process binds port 80 inside its own network namespace
+    # (NET_BIND_SERVICE) and drops workers to the `nginx` user (SETUID/SETGID,
+    # and CHOWN for the tmpfs cache dirs). Everything else goes.
+    cap_drop: [ALL]
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - CHOWN
+    security_opts:
+      - "no-new-privileges:true"
 
-- name: Assert the build produced an artifact
-  ansible.builtin.assert:
-    that: _tlsrep_dist.stat.exists
-    fail_msg: >-
-      {{ tlsrep_frontend_dist }}/index.html was not produced. Run
-      `npm run build` in {{ tlsrep_frontend_local_dir }} to see the error.
-    quiet: true
-  run_once: true
-  # In check mode the build task is skipped, so there may legitimately be no
-  # artifact yet -- don't fail a dry run over it.
-  when: not ansible_check_mode
-  tags: [deploy]
+    # --- resource limits ------------------------------------------------
+    memory: "{{ tlsrep_frontend_memory_max }}"
+    memory_swap: "{{ tlsrep_frontend_memory_max }}"
+    pids_limit: "{{ tlsrep_frontend_pids_limit }}"
 
-# --------------------------------------------------------------------------
-# Ship it
-# --------------------------------------------------------------------------
+    log_driver: json-file
+    log_options:
+      max-size: "{{ tlsrep_docker_log_max_size | default('10m') }}"
+      max-file: "{{ tlsrep_docker_log_max_file | default(3) | string }}"
 
-- name: Create the web root
-  ansible.builtin.file:
-    path: "{{ tlsrep_frontend_root }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: www-data
-    mode: "0755"
-  tags: [setup, deploy]
+    labels:
+      com.tls-reputation.component: frontend
+      com.tls-reputation.tag: "{{ tlsrep_image_tag }}"
 
-- name: Synchronise the built SPA
-  ansible.posix.synchronize:
-    src: "{{ tlsrep_frontend_dist }}/"
-    dest: "{{ tlsrep_frontend_root }}/"
-    archive: true
-    # Vite emits content-hashed filenames; without --delete the web root would
-    # accumulate every bundle ever deployed.
-    delete: true
-    compress: true
-  become: false
-  when: not ansible_check_mode or _tlsrep_dist.stat.exists
-  notify: Reload nginx
-  tags: [deploy]
-
-- name: Enforce permissions on the web root
-  ansible.builtin.file:
-    path: "{{ tlsrep_frontend_root }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: www-data
-    recurse: true
+    stop_timeout: 10
   tags: [deploy]

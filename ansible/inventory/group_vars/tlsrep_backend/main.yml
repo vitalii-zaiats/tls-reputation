@@ -5,21 +5,27 @@
 # group_vars/tlsrep_backend/vault.yml — see vault.yml.example.
 # ---------------------------------------------------------------------------
 
-tlsrep_backend_user: tlsrep
-tlsrep_backend_group: tlsrep
-tlsrep_backend_dir: "{{ tlsrep_install_root }}/backend"
-tlsrep_backend_venv: "{{ tlsrep_backend_dir }}/.venv"
-tlsrep_backend_env_file: "{{ tlsrep_config_dir }}/backend.env"
-
-# uvicorn binds loopback only; nginx is the only thing that talks to it.
+# The container publishes on loopback only; the host nginx is the sole public
+# entrypoint. 8000 is also the port uvicorn listens on inside the image.
 tlsrep_backend_bind_host: 127.0.0.1
 tlsrep_backend_bind_port: 8000
-tlsrep_backend_workers: 2
 
-# Database. The postgres role creates the role + database with these values.
+# ---------------------------------------------------------------------------
+# Database
+#
+# PostgreSQL stays on the host rather than in a container: it holds the corpus,
+# and durable state should not share a lifecycle with a stateless image pull.
+#
+# The backend container therefore reaches it across the Docker bridge, not over
+# loopback — inside a container 127.0.0.1 is the container itself.
+# `host.docker.internal` is mapped to the bridge gateway by the backend role
+# (etc_hosts + host-gateway), and the postgres role opens listen_addresses and
+# pg_hba.conf to exactly that bridge subnet and nothing wider.
+# ---------------------------------------------------------------------------
+
 tlsrep_db_name: tlsrep
 tlsrep_db_user: tlsrep
-tlsrep_db_host: 127.0.0.1
+tlsrep_db_host: host.docker.internal
 tlsrep_db_port: 5432
 tlsrep_db_password: "{{ vault_tlsrep_db_password }}"
 
@@ -37,9 +43,6 @@ tlsrep_ingest_key: "{{ vault_tlsrep_ingest_key }}"
 # belt-and-braces, but the API is meant to be usable from other origins too.
 tlsrep_cors_origins: "https://{{ tlsrep_domain }},https://www.{{ tlsrep_domain }}"
 
-# systemd resource limits for the API.
+# Container resource limits.
 tlsrep_backend_memory_max: 1G
-tlsrep_backend_tasks_max: 512
-
-# Relative to the repo root; applied on every deploy before the restart.
-tlsrep_backend_schema_file: backend/tlsrep/schema.sql
+tlsrep_backend_pids_limit: 512

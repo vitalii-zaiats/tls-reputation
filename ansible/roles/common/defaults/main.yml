@@ -1,10 +1,10 @@
 ---
-# Base packages installed on every host. Overridable per group.
+# Base packages installed on every host. Overridable per group. Short by
+# design: these are container hosts and everything the applications need is
+# inside their images.
 tlsrep_common_packages:
   - ca-certificates
   - curl
-  - git
-  - rsync
   - unattended-upgrades
   - ufw
   - jq
@@ -22,6 +22,3 @@ tlsrep_deploy_authorized_keys: []
 # Automatic security updates. Reboots are NOT automatic -- the proxies hold
 # long-lived connections and the app host should be rebooted deliberately.
 tlsrep_unattended_reboot: false
-
-tlsrep_config_dir: /etc/tls-reputation
-tlsrep_install_root: /opt/tls-reputation

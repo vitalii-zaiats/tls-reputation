@@ -1,32 +1,31 @@
 ---
-tlsrep_backend_user: tlsrep
-tlsrep_backend_group: tlsrep
-tlsrep_backend_dir: "{{ tlsrep_install_root }}/backend"
-tlsrep_backend_venv: "{{ tlsrep_backend_dir }}/.venv"
-tlsrep_backend_env_file: "{{ tlsrep_config_dir }}/backend.env"
+tlsrep_backend_container_name: tlsrep-backend
 
+# Image coordinates. tlsrep_image_base and tlsrep_image_tag come from
+# group_vars/all.yml, which is the single place to change the registry, the
+# owner or the default tag.
+tlsrep_backend_image_repo: "{{ tlsrep_image_base }}-backend"
+tlsrep_backend_image: "{{ tlsrep_backend_image_repo }}:{{ tlsrep_image_tag }}"
+
+# Published on loopback only -- the host nginx is the sole public entrypoint.
 tlsrep_backend_bind_host: 127.0.0.1
 tlsrep_backend_bind_port: 8000
-tlsrep_backend_workers: 2
-
-# ASGI entrypoint, passed to uvicorn.
-tlsrep_backend_app: "tlsrep.main:app"
+# uvicorn's port inside the image; fixed by the Dockerfile.
+tlsrep_backend_container_port: 8000
 
 tlsrep_backend_memory_max: 1G
-tlsrep_backend_tasks_max: 512
+tlsrep_backend_pids_limit: 512
+tlsrep_backend_nofile_limit: 16384
 
-tlsrep_backend_schema_file: backend/tlsrep/schema.sql
+# How long to wait for the image's own HEALTHCHECK to report healthy before
+# failing the deploy. The container connects to PostgreSQL and applies the
+# schema on startup, so allow more than the image's 10s start-period.
+tlsrep_backend_healthy_timeout: 120
 
-tlsrep_uv_version: "0.5.14"
-tlsrep_python_version: "3.13"
+# Merged over the env dict the role builds. Use this for TLSREP_POOL_MAX and
+# friends without editing the role.
+tlsrep_backend_extra_env: {}
 
-# rsync exclusions -- never ship local dev cruft to the server.
-tlsrep_backend_rsync_excludes:
-  - ".venv/"
-  - "__pycache__/"
-  - "*.pyc"
-  - ".pytest_cache/"
-  - ".ruff_cache/"
-  - ".mypy_cache/"
-  - ".env"
-  - "tests/"
+# The gateway address the container reaches the host database on. Kept in step
+# with the docker role, which pins the bridge to this subnet.
+tlsrep_docker_bridge_ip: "172.17.0.1"

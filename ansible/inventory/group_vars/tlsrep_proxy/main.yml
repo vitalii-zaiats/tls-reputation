@@ -5,16 +5,15 @@
 # and MUST match the value deployed to the backend.
 # ---------------------------------------------------------------------------
 
-tlsrep_proxy_user: tlsrep-proxy
-tlsrep_proxy_group: tlsrep-proxy
-tlsrep_proxy_dir: "{{ tlsrep_install_root }}/proxy"
-tlsrep_proxy_venv: "{{ tlsrep_proxy_dir }}/.venv"
-tlsrep_proxy_env_file: "{{ tlsrep_config_dir }}/proxy.env"
-
-# High, non-standard port. Overridden per host in the inventory so each exit
-# node is distinguishable. Deliberately NOT 80/443 -- these boxes must not look
-# like, or be reachable as, web servers.
-tlsrep_proxy_listen_port: 18443
+# High, non-standard port on the host. Overridden per host in the inventory so
+# each exit node is distinguishable in the ingest logs. Deliberately NOT 80/443
+# -- these boxes must not look like, or be reachable as, web servers.
+#
+# This is the one container in the project published on 0.0.0.0 rather than
+# loopback: remote clients dial the collector directly, there is no host nginx
+# in front of it.
+tlsrep_proxy_port: 18443
+tlsrep_proxy_bind_address: "0.0.0.0"
 
 # Where collected ClientHellos are shipped. This is the internal ingest
 # endpoint, authenticated with the shared ingest key.
@@ -25,12 +24,18 @@ tlsrep_ingest_key: "{{ vault_tlsrep_ingest_key }}"
 tlsrep_proxy_batch_size: 200
 tlsrep_proxy_flush_interval: 15
 
-# systemd resource limits. The proxy is I/O bound and holds many sockets.
+# Container resource limits. The proxy is I/O bound and holds many sockets, so
+# the file descriptor limit is the binding constraint, not memory.
 tlsrep_proxy_memory_max: 512M
-tlsrep_proxy_tasks_max: 4096
+tlsrep_proxy_pids_limit: 4096
 tlsrep_proxy_nofile_limit: 65535
 
-# Extra CIDRs allowed to reach the proxy port. Leave empty to allow any source
-# (the port is unguessable-ish but the ingest key is the real control); set to
-# your provider's ranges to lock it down.
+# Extra CIDRs allowed to reach the proxy port.
+#
+# READ THIS BEFORE RELYING ON IT: Docker's published ports are DNAT'd in the
+# DOCKER-USER chain, which is traversed *before* UFW's chains. UFW rules
+# therefore do not filter traffic to a published container port. The rules
+# below are still applied (they document intent and they do govern anything
+# listening on the host itself), but source restriction for the collector port
+# has to be enforced at the cloud provider's firewall / security group.
 tlsrep_proxy_allowed_sources: []

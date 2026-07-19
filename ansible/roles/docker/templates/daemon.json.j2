@@ -5,6 +5,5 @@
     "max-file": "{{ tlsrep_docker_log_max_file | string }}"
   },
   "bip": "{{ tlsrep_docker_bridge_ip }}/{{ tlsrep_docker_bridge_prefix }}",
-  "live-restore": {{ tlsrep_docker_live_restore | bool | lower }},
-  "userland-proxy": false
+  "live-restore": {{ tlsrep_docker_live_restore | bool | lower }}
 }

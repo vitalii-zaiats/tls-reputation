@@ -1,10 +1,19 @@
 ---
 tlsrep_nginx_site: tls-reputation
-tlsrep_frontend_root: /var/www/tls-reputation
 
-# Backend upstream (loopback).
+# --- upstreams -------------------------------------------------------------
+# Both are containers published on loopback. This host nginx is the only thing
+# on the box listening on a public address, and the only thing that terminates
+# TLS -- neither container is reachable from off-host.
+
+# The FastAPI container.
 tlsrep_backend_bind_host: 127.0.0.1
 tlsrep_backend_bind_port: 8000
+
+# The SPA container (nginx serving the Vite build). There is no web root on
+# the host any more; / is proxied here.
+tlsrep_frontend_bind_host: 127.0.0.1
+tlsrep_frontend_bind_port: 8080
 
 # --- TLS -------------------------------------------------------------------
 tlsrep_tls_enabled: true

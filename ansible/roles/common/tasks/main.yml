@@ -29,8 +29,9 @@
   tags: [setup]
 
 # --------------------------------------------------------------------------
-# Deploy user -- owns the shipped code and is the account Ansible connects as.
-# Service accounts are separate and cannot log in.
+# Deploy user -- the account Ansible connects as and escalates from. It owns
+# no application code: that lives in container images, and the applications
+# run as unprivileged uids inside them.
 # --------------------------------------------------------------------------
 
 - name: Create the deploy group
@@ -70,23 +71,9 @@
     validate: /usr/sbin/visudo -csf %s
   tags: [setup]
 
-- name: Create the shared config directory
-  ansible.builtin.file:
-    path: "{{ tlsrep_config_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  tags: [setup]
-
-- name: Create the install root
-  ansible.builtin.file:
-    path: "{{ tlsrep_install_root }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  tags: [setup]
+# No /opt or /etc application directories are created. Nothing is installed
+# from source on these hosts: configuration is passed to containers as
+# environment, and application state lives in PostgreSQL.
 
 # --------------------------------------------------------------------------
 # Unattended security upgrades

@@ -1,11 +1,16 @@
 ---
 # Install with:  ansible-galaxy collection install -r requirements.yml
 collections:
+  # docker_container / docker_login / docker_image — the entire deploy runs on
+  # these, so a missing collection fails at the first container task.
+  - name: community.docker
+    version: ">=3.10.0"
+
   # postgresql_db / postgresql_user / postgresql_privs
   - name: community.postgresql
     version: ">=3.4.0"
 
-  # synchronize (rsync), authorized_key, mount, sysctl
+  # authorized_key, mount, sysctl
   - name: ansible.posix
     version: ">=1.5.4"
 

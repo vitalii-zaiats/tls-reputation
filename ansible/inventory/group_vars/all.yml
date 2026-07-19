@@ -6,33 +6,60 @@
 
 tlsrep_domain: tls-reputation.com
 
-# Where the local checkout lives. Everything is shipped with rsync from here,
-# so the control machine (your laptop) is the source of truth for what is
-# deployed. `playbook_dir` is <repo>/ansible, so the repo root is one up.
-tlsrep_local_repo: "{{ playbook_dir }}/.."
+# ---------------------------------------------------------------------------
+# Container images
+#
+# Nothing is built on the servers. Images are built for linux/amd64 on the
+# developer laptop by the repo's Makefile, pushed to GHCR, and pulled from
+# there by these playbooks. `make deploy` passes the tag as an extra var.
+# ---------------------------------------------------------------------------
 
-# Common on-target layout.
-tlsrep_config_dir: /etc/tls-reputation
-tlsrep_install_root: /opt/tls-reputation
+tlsrep_registry: ghcr.io
+tlsrep_image_owner: vitalii-zaiats
+tlsrep_image_project: tls-reputation
 
-# Unprivileged account Ansible connects as and that owns the shipped code.
-# Service accounts (tlsrep / tlsrep-proxy) are separate and cannot log in.
+# Yields ghcr.io/vitalii-zaiats/tls-reputation-{backend,frontend,proxy}.
+tlsrep_image_base: "{{ tlsrep_registry }}/{{ tlsrep_image_owner }}/{{ tlsrep_image_project }}"
+
+# Overridden on every real deploy:  -e tlsrep_image_tag=<git-sha>
+# `latest` is the default so an ad-hoc `ansible-playbook site.yml` still does
+# something sensible, but see the README on why a pinned tag is better.
+tlsrep_image_tag: latest
+
+# Tags that move. For these the image has to be re-resolved from the registry
+# on every run, or re-deploying the same tag name would be a no-op even though
+# the registry now holds different bytes. Immutable tags (a git SHA) are only
+# pulled when missing locally, which makes redeploys and rollbacks fast.
+tlsrep_image_mutable_tags:
+  - latest
+  - main
+  - edge
+  - nightly
+tlsrep_image_pull: "{{ 'always' if tlsrep_image_tag in tlsrep_image_mutable_tags else 'missing' }}"
+
+# GHCR login. The packages are public, so this is optional — set
+# vault_ghcr_token in a vault only when you make them private, or when you want
+# the higher authenticated pull rate limit. See roles/docker/tasks/main.yml.
+tlsrep_ghcr_username: "{{ tlsrep_image_owner }}"
+tlsrep_ghcr_token: "{{ vault_ghcr_token | default('') }}"
+
+# ---------------------------------------------------------------------------
+# Hosts
+# ---------------------------------------------------------------------------
+
+# Unprivileged account Ansible connects as. It owns no application code any
+# more — the images carry that — but it is still the sudo account.
 tlsrep_deploy_user: deploy
 tlsrep_deploy_group: deploy
 
-# uv is used to manage the Python toolchain on every Python host. Pinned so a
-# deploy is reproducible; bump deliberately.
-tlsrep_uv_version: "0.5.14"
-tlsrep_python_version: "3.13"
-
 tlsrep_timezone: Etc/UTC
 
-# Baseline packages installed everywhere by the `common` role.
+# Baseline packages installed everywhere by the `common` role. Deliberately
+# short: these are container hosts, and everything the applications need lives
+# inside their images.
 tlsrep_common_packages:
   - ca-certificates
   - curl
-  - git
-  - rsync
   - unattended-upgrades
   - ufw
   - htop

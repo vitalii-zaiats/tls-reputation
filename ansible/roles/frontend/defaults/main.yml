@@ -1,19 +1,17 @@
 ---
-# Where nginx serves the SPA from. Owned by deploy, world-readable so the
-# nginx worker (www-data) can read it.
-tlsrep_frontend_root: /var/www/tls-reputation
+tlsrep_frontend_container_name: tlsrep-frontend
 
-tlsrep_frontend_local_dir: "{{ tlsrep_local_repo }}/frontend"
-tlsrep_frontend_dist: "{{ tlsrep_frontend_local_dir }}/dist"
+tlsrep_frontend_image_repo: "{{ tlsrep_image_base }}-frontend"
+tlsrep_frontend_image: "{{ tlsrep_frontend_image_repo }}:{{ tlsrep_image_tag }}"
 
-# Build on the control machine and ship the artifact. Set to false if you have
-# already built dist/ yourself and just want it shipped.
-tlsrep_frontend_build: true
+# Published on loopback only. The host nginx terminates TLS and proxies / here;
+# nothing reaches this container from outside the box.
+tlsrep_frontend_bind_host: 127.0.0.1
+tlsrep_frontend_bind_port: 8080
+# nginx's port inside the image; fixed by the Dockerfile.
+tlsrep_frontend_container_port: 80
 
-# Baked into the bundle at build time by Vite. Relative by default so the SPA
-# talks to whatever origin serves it, via the nginx /api/ proxy.
-tlsrep_frontend_api_base: "/api/v1"
+tlsrep_frontend_memory_max: 256M
+tlsrep_frontend_pids_limit: 128
 
-# `npm ci` requires a lockfile and is the reproducible choice. Falls back to
-# `npm install` automatically if package-lock.json is absent.
-tlsrep_frontend_npm_ci: true
+tlsrep_frontend_healthy_timeout: 60

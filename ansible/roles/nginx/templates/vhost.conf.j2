@@ -6,8 +6,17 @@
 {% set tls = _tlsrep_vhost_tls | default(false) %}
 # {{ ansible_managed }}
 
+{#
+  Both upstreams are containers published on loopback. This vhost is the only
+  public listener on the host and the only place TLS is terminated.
+#}
 upstream tlsrep_backend {
     server {{ tlsrep_backend_bind_host }}:{{ tlsrep_backend_bind_port }};
+    keepalive 16;
+}
+
+upstream tlsrep_frontend {
+    server {{ tlsrep_frontend_bind_host }}:{{ tlsrep_frontend_bind_port }};
     keepalive 16;
 }
 
@@ -56,8 +65,10 @@ server {
     }
 {% endif %}
 
-    root {{ tlsrep_frontend_root }};
-    index index.html;
+    # No `root` and no `index`: there is no web root on this host. Every path
+    # is proxied -- /api/ and /internal/ to the backend container, everything
+    # else to the frontend container, which holds the SPA and does its own
+    # try_files fallback for vue-router's history mode.
 
     # --- security headers -------------------------------------------------
     # nginx does not merge add_header across levels, so any location that adds
@@ -108,38 +119,13 @@ server {
         add_header X-Content-Type-Options "nosniff" always;
     }
 
-    # --- static assets ----------------------------------------------------
-    # Vite emits content-hashed filenames, so these are safe to pin forever.
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        access_log off;
-        try_files $uri =404;
-    }
-
-    # index.html must never be cached, or clients keep loading the old bundle
-    # after a deploy.
-    location = /index.html {
-        add_header Cache-Control "no-cache, must-revalidate" always;
-{% if tls %}
-        add_header Strict-Transport-Security "max-age={{ tlsrep_hsts_max_age }}; includeSubDomains{{ '; preload' if tlsrep_hsts_preload else '' }}" always;
-{% endif %}
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
-    }
-
-    # --- SPA fallback -----------------------------------------------------
-    # vue-router uses history mode, so any unmatched path has to return the
-    # app shell and let the client route it.
+    # --- the SPA ----------------------------------------------------------
+    # Everything not matched above goes to the frontend container, which owns
+    # the bundle, the immutable /assets/ caching, the no-cache on index.html
+    # and the history-mode fallback. Deliberately no add_header here: nginx
+    # replaces rather than merges add_header across levels, so an empty
+    # location keeps the full server-level header set above.
     location / {
-        try_files $uri $uri/ /index.html;
+        proxy_pass http://tlsrep_frontend;
     }
-
-    location = /favicon.ico { access_log off; log_not_found off; }
-    location = /robots.txt  { access_log off; log_not_found off; }
-
-    # Never serve dotfiles (.git, .env) if one ever lands in the web root.
-    location ~ /\. { deny all; }
 }

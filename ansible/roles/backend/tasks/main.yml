@@ -1,180 +1,110 @@
 ---
 # --------------------------------------------------------------------------
-# Preflight. Fail here, loudly, rather than half-way through a deploy with a
-# confusing uv or psql error.
+# Backend: pull the prebuilt image from GHCR and run it.
+#
+# Nothing is compiled or installed here. The image is built for linux/amd64 on
+# the laptop by the repo Makefile (`make push-backend`) and this role only ever
+# pulls it. There is no source tree, no virtualenv and no service account on
+# the host -- the image already runs as an unprivileged uid.
+#
+# There is also no separate migration step: the image applies schema.sql from
+# its FastAPI lifespan hook on startup, so the schema is in place before the
+# healthcheck can pass.
 # --------------------------------------------------------------------------
 
-- name: Check that the backend sources exist locally
-  ansible.builtin.stat:
-    path: "{{ tlsrep_local_repo }}/{{ item }}"
-  register: _tlsrep_backend_sources
-  loop:
-    - backend/pyproject.toml
-    - "{{ tlsrep_backend_schema_file }}"
-  delegate_to: localhost
-  become: false
-  run_once: true
-  check_mode: false
-  tags: [always]
-
-- name: Assert the backend is deployable
+- name: Assert an image tag is set
   ansible.builtin.assert:
-    that: _tlsrep_backend_sources.results | rejectattr('stat.exists') | list | length == 0
+    that:
+      - tlsrep_image_tag | default('') | length > 0
     fail_msg: >-
-      Missing backend sources in {{ tlsrep_local_repo }}:
-      {{ _tlsrep_backend_sources.results | rejectattr('stat.exists')
-         | map(attribute='item') | join(', ') }}.
-      The backend cannot be deployed until these exist -- pyproject.toml drives
-      `uv sync` and schema.sql drives the migration.
+      tlsrep_image_tag is empty. Pass one explicitly
+      (-e tlsrep_image_tag=<git-sha>, which is what `make deploy` does) or
+      leave the `latest` default in group_vars/all.yml in place.
     quiet: true
   run_once: true
   tags: [always]
 
-- name: Install the uv toolchain
-  ansible.builtin.include_tasks: uv.yml
-  tags: [setup]
-
 # --------------------------------------------------------------------------
-# Service account and layout
-# --------------------------------------------------------------------------
-
-- name: Create the backend service group
-  ansible.builtin.group:
-    name: "{{ tlsrep_backend_group }}"
-    system: true
-    state: present
-  tags: [setup]
-
-# Non-login system account: it owns nothing but the runtime, and cannot be
-# used to get a shell if the API is ever compromised.
-- name: Create the backend service user
-  ansible.builtin.user:
-    name: "{{ tlsrep_backend_user }}"
-    group: "{{ tlsrep_backend_group }}"
-    system: true
-    shell: /usr/sbin/nologin
-    home: "{{ tlsrep_backend_dir }}"
-    create_home: false
-    state: present
-  tags: [setup]
-
-# Owned by deploy so rsync can write it without root; group-readable by the
-# service account so uvicorn can import the package.
-- name: Create the backend application directory
-  ansible.builtin.file:
-    path: "{{ tlsrep_backend_dir }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: "{{ tlsrep_backend_group }}"
-    mode: "0750"
-  tags: [setup, deploy]
-
-- name: Install the PostgreSQL client
-  ansible.builtin.apt:
-    name: postgresql-client
-    state: present
-  tags: [setup]
-
-# --------------------------------------------------------------------------
-# Ship the code. rsync from the local checkout -- see README for why this is
-# the default rather than pulling with git.
-# --------------------------------------------------------------------------
-
-- name: Synchronise the backend source
-  ansible.posix.synchronize:
-    src: "{{ tlsrep_local_repo }}/backend/"
-    dest: "{{ tlsrep_backend_dir }}/"
-    archive: true
-    delete: true
-    compress: true
-    rsync_opts: "{{ tlsrep_backend_rsync_excludes | map('regex_replace', '^', '--exclude=') | list }}"
-  become: false
-  register: _tlsrep_backend_sync
-  notify: Restart tlsrep-backend
-  tags: [deploy]
-
-- name: Resolve the Python dependencies
-  ansible.builtin.command:
-    cmd: /usr/local/bin/uv sync --frozen --no-dev --python {{ tlsrep_python_version }}
-    chdir: "{{ tlsrep_backend_dir }}"
-  environment:
-    UV_PYTHON_INSTALL_DIR: /opt/uv-python
-    UV_CACHE_DIR: "{{ tlsrep_backend_dir }}/.uv-cache"
-  become: false
-  register: _tlsrep_uv_sync
-  changed_when: >-
-    'Installed' in (_tlsrep_uv_sync.stderr | default('')) or
-    'Uninstalled' in (_tlsrep_uv_sync.stderr | default(''))
-  notify: Restart tlsrep-backend
-  tags: [deploy]
-
-- name: Enforce ownership on the deployed tree
-  ansible.builtin.file:
-    path: "{{ tlsrep_backend_dir }}"
-    state: directory
-    owner: "{{ tlsrep_deploy_user }}"
-    group: "{{ tlsrep_backend_group }}"
-    mode: "0750"
-    recurse: true
-  tags: [deploy]
-
-# --------------------------------------------------------------------------
-# Configuration
-# --------------------------------------------------------------------------
-
-- name: Install the backend environment file
-  ansible.builtin.template:
-    src: backend.env.j2
-    dest: "{{ tlsrep_backend_env_file }}"
-    owner: "{{ tlsrep_backend_user }}"
-    group: "{{ tlsrep_backend_group }}"
-    mode: "0640"
-  no_log: true
-  notify: Restart tlsrep-backend
-  tags: [config, deploy]
-
-- name: Install the backend systemd unit
-  ansible.builtin.template:
-    src: tlsrep-backend.service.j2
-    dest: /etc/systemd/system/tlsrep-backend.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart tlsrep-backend
-  tags: [config, deploy]
-
-# --------------------------------------------------------------------------
-# Schema migration. schema.sql is idempotent (CREATE TABLE IF NOT EXISTS), so
-# it is safe to reapply on every deploy.
+# The container.
 #
-# This runs as an ordinary task while the restart is a handler, which is
-# exactly the ordering we need: handlers flush at the end of the play, so the
-# schema is always in place before the new code starts serving.
+# Redeploys work by image identity, not by tag string: docker_container
+# compares the running container's image ID against the resolved image and
+# recreates on a mismatch (image_name_mismatch defaults to `recreate`). That
+# is why `pull` matters — for a moving tag like `latest` the image has to be
+# re-resolved from the registry every run, or a redeploy would compare against
+# the stale local copy and decide nothing changed. tlsrep_image_pull works
+# that out from the tag; see group_vars/all.yml.
+#
+# `recreate: true` is deliberately NOT set: that would tear down and restart
+# the container on every run whether or not anything changed.
 # --------------------------------------------------------------------------
 
-- name: Apply the database schema
-  ansible.builtin.command:
-    cmd: >-
-      psql --no-psqlrc --quiet --set ON_ERROR_STOP=1
-      --file {{ tlsrep_backend_dir }}/tlsrep/schema.sql
-  environment:
-    PGHOST: "{{ tlsrep_db_host }}"
-    PGPORT: "{{ tlsrep_db_port | string }}"
-    PGDATABASE: "{{ tlsrep_db_name }}"
-    PGUSER: "{{ tlsrep_db_user }}"
-    PGPASSWORD: "{{ tlsrep_db_password }}"
-  become: false
-  # Idempotent DDL: reapplying it is a no-op, so this is never a "change".
-  changed_when: false
-  no_log: true
-  tags: [deploy, migrate]
+- name: Run the backend container
+  community.docker.docker_container:
+    name: "{{ tlsrep_backend_container_name }}"
+    image: "{{ tlsrep_backend_image }}"
+    pull: "{{ tlsrep_image_pull }}"
 
-- name: Enable the backend service
-  ansible.builtin.systemd_service:
-    name: tlsrep-backend
-    enabled: true
-    state: started
-    daemon_reload: true
+    # Waits for the image's HEALTHCHECK, so a deploy that starts but cannot
+    # reach the database fails here instead of looking successful.
+    state: healthy
+    healthy_wait_timeout: "{{ tlsrep_backend_healthy_timeout }}"
+
+    # dockerd is the systemd unit that owns container lifecycle; combined with
+    # `docker.service` being enabled, this is what brings the API back after a
+    # reboot or a crash.
+    restart_policy: unless-stopped
+
+    published_ports:
+      - "{{ tlsrep_backend_bind_host }}:{{ tlsrep_backend_bind_port }}:{{ tlsrep_backend_container_port }}"
+
+    # PostgreSQL runs on the host, so 127.0.0.1 inside the container is the
+    # wrong machine. host-gateway resolves to the docker0 address, which the
+    # postgres role has opened listen_addresses and pg_hba.conf for.
+    etc_hosts:
+      host.docker.internal: host-gateway
+
+    env: "{{ _tlsrep_backend_env | combine(tlsrep_backend_extra_env) }}"
+
+    # --- hardening ------------------------------------------------------
+    # The application writes nothing to disk: its state is in PostgreSQL and
+    # its logs go to stdout. /tmp is tmpfs only because the stdlib expects a
+    # writable one to exist.
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=64m"
+    cap_drop: [ALL]
+    security_opts:
+      - "no-new-privileges:true"
+
+    # --- resource limits ------------------------------------------------
+    memory: "{{ tlsrep_backend_memory_max }}"
+    # Equal to `memory` disables swap: an OOM should kill and restart the
+    # container, not degrade the whole host into swapping.
+    memory_swap: "{{ tlsrep_backend_memory_max }}"
+    pids_limit: "{{ tlsrep_backend_pids_limit }}"
+    ulimits:
+      - "nofile:{{ tlsrep_backend_nofile_limit }}:{{ tlsrep_backend_nofile_limit }}"
+
+    log_driver: json-file
+    log_options:
+      max-size: "{{ tlsrep_docker_log_max_size | default('10m') }}"
+      max-file: "{{ tlsrep_docker_log_max_file | default(3) | string }}"
+
+    labels:
+      com.tls-reputation.component: backend
+      com.tls-reputation.tag: "{{ tlsrep_image_tag }}"
+
+    # Give the app time to flush in-flight requests.
+    stop_timeout: 30
+  vars:
+    _tlsrep_backend_env:
+      TLSREP_DSN: "{{ tlsrep_dsn }}"
+      TLSREP_INGEST_KEY: "{{ tlsrep_ingest_key }}"
+      TLSREP_CORS_ORIGINS: "{{ tlsrep_cors_origins }}"
+  # The DSN carries the database password and the env dict carries the ingest
+  # key, both of which would otherwise be printed verbatim in the task result.
+  # The cost is that a failure here reports nothing useful -- see the README
+  # for how to debug it (`docker logs tlsrep-backend`).
+  no_log: true
   tags: [deploy]
