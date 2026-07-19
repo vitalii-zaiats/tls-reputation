@@ -131,12 +131,17 @@ function fpKey(row) {
         </StatGrid>
         <p class="footnote">
           <strong>Spread</strong> is the mirror of the fingerprint metric: the normalised Shannon
-          entropy of the fingerprints reaching this name. 0 means essentially one client stack; the
-          middle range is what ordinary traffic looks like; near 1.0 means many distinct
-          fingerprints in near-equal proportion — normal on a busy public site, but on a login or
-          API endpoint it is the shape of one actor rotating fingerprints. Read it against the
-          observation count: 1.0 over three connections is noise, 1.0 over sixty thousand is a
-          finding.
+          entropy of the fingerprints reaching this name. 0 means essentially one client stack;
+          the middle range is what ordinary traffic looks like; near 1.0 means many distinct
+          client stacks in near-equal proportion. Read it against the observation count — 1.0
+          over three connections is noise, 1.0 over sixty thousand is worth a look.
+        </p>
+        <p class="footnote">
+          What it does not tell you is who. This corpus records no per-connection identity, which
+          is what makes it publishable, so a high figure is equally consistent with a varied
+          audience and with one actor cycling through TLS stacks. Fingerprints here are keyed on
+          JA4, so a browser that permutes its own ClientHello counts once rather than once per
+          connection — the number no longer inflates just because a client reshuffles itself.
         </p>
       </section>
 
@@ -180,7 +185,8 @@ function fpKey(row) {
         <p class="footnote">
           <span class="mono">share</span> is this fingerprint's fraction of all observations of
           this server name. Many distinct fingerprints on a low-traffic name is itself worth a
-          look.
+          look. <span class="mono">ja3</span> is blank for any client that has emitted more than
+          one — open the fingerprint to see the variants.
         </p>
       </section>
     </template>

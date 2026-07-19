@@ -80,6 +80,17 @@ export function formatSpread(spread) {
   return Number(spread).toFixed(3)
 }
 
+/**
+ * JA3 variant counts: "128+" once the corpus has stopped recording new ones.
+ *
+ * Past the cap the stored count is a floor, not a total, and rendering a bare
+ * "128" would claim a precision the corpus does not have.
+ */
+export function formatVariantCount(count, capped = false) {
+  if (count === null || count === undefined || Number.isNaN(Number(count))) return '—'
+  return `${formatInt(count)}${capped ? '+' : ''}`
+}
+
 /** ISO 8601 -> "2026-01-04 10:22 UTC" */
 export function formatDate(iso) {
   if (!iso) return '—'

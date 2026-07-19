@@ -7,16 +7,16 @@ const BASE = 'https://tls-reputation.com/api/v1'
 
 const endpoints = [
   {
-    id: 'ja3',
-    sig: 'GET /api/v1/ja3/{md5}',
-    desc: 'Look up a fingerprint by its JA3 md5 hash. Returns a fingerprint object. 404 if the hash has never been observed.',
-    curl: `curl -s ${BASE}/ja3/cd08e31494f9531f560d64c695473da9`,
-  },
-  {
     id: 'ja4',
     sig: 'GET /api/v1/ja4/{ja4}',
-    desc: 'Look up a fingerprint by its JA4 string. Returns the same fingerprint object shape as /ja3.',
-    curl: `curl -s ${BASE}/ja4/t13d1516h2_8daaf6152771_02713d6af862`,
+    desc: 'Look up a fingerprint by its JA4 string. JA4 is the identity in this corpus, so this is the canonical route. Returns a fingerprint object. 404 if the JA4 has never been observed.',
+    curl: `curl -s ${BASE}/ja4/t13d1516h2_8daaf6152771_e5627efa2ab1`,
+  },
+  {
+    id: 'ja3',
+    sig: 'GET /api/v1/ja3/{md5}',
+    desc: 'Resolve a JA3 md5 to the fingerprint that emitted it. JA3 is not an identity — a client that permutes its ClientHello emits a new one per connection — so this is a lookup through the variant table, and the response carries an extra matched_ja3 block saying which JA4 it resolved to. Otherwise the same object as /ja4. A 404 here does not mean an unknown client; try its JA4.',
+    curl: `curl -s ${BASE}/ja3/cd08e31494f9531f560d64c695473da9`,
   },
   {
     id: 'sni',
@@ -27,7 +27,7 @@ const endpoints = [
   {
     id: 'fingerprints',
     sig: 'GET /api/v1/fingerprints?sort=&limit=&offset=',
-    desc: 'Paginated list of all fingerprints. sort is one of observations, unique_snis, spread — always descending.',
+    desc: 'Paginated list of all fingerprints. sort is one of observations, unique_snis, spread, last_seen — always descending. Items carry ja4, a nullable ja3, alpn, stability and the counters. There is no sort key for stability.',
     curl: `curl -s "${BASE}/fingerprints?sort=spread&limit=50&offset=0"`,
   },
   {
@@ -43,6 +43,12 @@ const endpoints = [
     curl: `curl -s "${BASE}/search?q=example.com"`,
   },
   {
+    id: 'alpn',
+    sig: 'GET /api/v1/alpn',
+    desc: 'How the corpus splits across ALPN offer lists, reported both per distinct fingerprint and per observation. Keyed on the offer list in order, which is never normalised — the order is the signal. No parameters.',
+    curl: `curl -s ${BASE}/alpn`,
+  },
+  {
     id: 'stats',
     sig: 'GET /api/v1/stats',
     desc: 'Corpus totals and the observation window.',
@@ -51,22 +57,58 @@ const endpoints = [
 ]
 
 const fingerprintExample = `{
-  "ja3": "cd08e31494f9531f560d64c695473da9",
-  "ja3_raw": "771,4865-4866-4867-49195,0-23-65281-10-11,29-23-24,0",
-  "ja4": "t13d1516h2_8daaf6152771_02713d6af862",
+  "ja4": "t13d1516h2_8daaf6152771_e5627efa2ab1",
   "ja4_r": "t13d1516h2_002f,0035,009c...",
+  "ja3": null,
+  "ja3_raw": null,
   "tls_version": "TLS 1.3",
   "alpn": ["h2", "http/1.1"],
+  "observations": 4341,
+  "unique_snis": 31,
+  "spread": 0.651,
+  "stability": {
+    "class": "randomizing",
+    "novelty": 0.94,
+    "variants": 128,
+    "variants_capped": true,
+    "observations": 4341,
+    "dominant_variant_share": 0.12,
+    "explanation": "94% of connections presented a JA3 never seen before..."
+  },
   "cipher_suites": [{"value": "0x1301", "name": "TLS_AES_128_GCM_SHA256"}],
   "extensions": [{"value": "0x0000", "name": "server_name"}],
+  "extensions_sorted": true,
   "curves": [{"value": "0x001d", "name": "x25519"}],
   "sig_algs": [{"value": "0x0403", "name": "ecdsa_secp256r1_sha256"}],
-  "observations": 128401,
-  "unique_snis": 412,
-  "spread": 0.87,
+  "point_formats": ["0x0000"],
+  "ja3_variants": {
+    "total": 128,
+    "capped": true,
+    "items": [{"ja3": "cd08e...", "ja3_raw": "771,4865-...", "observations": 1}]
+  },
   "first_seen": "2026-01-04T10:22:31Z",
   "last_seen": "2026-07-19T08:00:00Z",
   "top_snis": [{"sni": "example.com", "count": 8123, "share": 0.063}]
+}`
+
+// Only the /ja3 route adds this.
+const matchedExample = `"matched_ja3": {
+  "ja3": "cd08e31494f9531f560d64c695473da9",
+  "canonical": "t13d1516h2_8daaf6152771_e5627efa2ab1",
+  "also_seen_under": []
+}`
+
+const alpnExample = `{
+  "total_fingerprints": 2698,
+  "total_observations": 15999,
+  "items": [
+    {"alpn": ["h2", "http/1.1"],
+     "label": "h2, http/1.1",
+     "fingerprints": 2443,
+     "observations": 13591,
+     "share_of_fingerprints": 0.9052,
+     "share_of_observations": 0.8495}
+  ]
 }`
 
 const sniExample = `{
@@ -77,7 +119,7 @@ const sniExample = `{
   "first_seen": "2026-01-04T10:22:31Z",
   "last_seen": "2026-07-19T08:00:00Z",
   "top_fingerprints": [
-    {"ja3": "cd08e...", "ja4": "t13d1516h2_...", "count": 1201, "share": 0.023}
+    {"ja4": "t13d1516h2_...", "ja3": null, "count": 1201, "share": 0.023}
   ]
 }`
 

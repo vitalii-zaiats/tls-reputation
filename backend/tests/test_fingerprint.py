@@ -179,3 +179,175 @@ class TestSniSpread:
         ordinary = spread([9000, 4000, 1500, 300, 80, 20])
         rotating = spread([1] * 60)
         assert rotating > ordinary
+
+
+class TestTransportPrefix:
+    """JA4's first character is the transport, and it is now the identity key.
+
+    Hardcoding 't' would mean a QUIC hello from a client collides with its own
+    TCP hello — an identity collision with no way out once JA4 is the primary
+    key.
+    """
+
+    def test_defaults_to_tcp(self):
+        assert fingerprint(CURL)["ja4"].startswith("t")
+
+    def test_follows_the_hello(self):
+        hello = parse_client_hello(CURL)
+        hello.transport = "q"
+        ja4, _ = compute_ja4(hello)
+        assert ja4.startswith("q")
+
+    def test_transports_do_not_collide(self):
+        tcp = parse_client_hello(CURL)
+        quic = parse_client_hello(CURL)
+        quic.transport = "q"
+        assert compute_ja4(tcp)[0] != compute_ja4(quic)[0]
+
+
+class TestTruncationIsRefused:
+    """A short hello parses into a smaller extension count and a clipped
+    extension set — a confident, distinct, WRONG JA4. Under JA4-as-identity
+    that mints a client that never existed, so ingest must refuse it."""
+
+    def test_full_hello_is_accepted(self):
+        assert fingerprint(CURL) is not None
+        assert parse_client_hello(CURL).truncated is False
+
+    def test_short_hello_is_flagged_and_refused(self):
+        cut = CURL[: len(CURL) - 40]
+        hello = parse_client_hello(cut)
+        assert hello is not None and hello.truncated is True
+        assert fingerprint(cut) is None
+
+    def test_truncated_would_otherwise_have_produced_a_different_ja4(self):
+        """The point of refusing: it does not merely lose data, it invents."""
+        cut = CURL[: len(CURL) - 40]
+        whole = parse_client_hello(CURL)
+        short = parse_client_hello(cut)
+        assert compute_ja4(short)[0] != compute_ja4(whole)[0]
+
+
+class TestPermutationCollapsesToOneIdentity:
+    """The bug this schema exists to fix: Chrome reshuffles extension order per
+    connection, so JA3 changes every time while JA4 stays put."""
+
+    @staticmethod
+    def _permute(data: bytes, seed: int) -> bytes:
+        import random
+        import struct
+
+        rng = random.Random(seed)
+        body = bytearray(data)
+        pos = 5 + 4 + 34
+        pos += 1 + body[pos]
+        ciphers_len = struct.unpack_from("!H", body, pos)[0]
+        pos += 2 + ciphers_len
+        pos += 1 + body[pos]
+        ext_total = struct.unpack_from("!H", body, pos)[0]
+        pos += 2
+        block, end = body[pos : pos + ext_total], pos + ext_total
+
+        exts, cursor = [], 0
+        while cursor + 4 <= len(block):
+            length = struct.unpack_from("!H", block, cursor + 2)[0]
+            exts.append(bytes(block[cursor : cursor + 4 + length]))
+            cursor += 4 + length
+        rng.shuffle(exts)
+        return bytes(body[:pos]) + b"".join(exts) + bytes(body[end:])
+
+    def test_permuted_hellos_share_one_ja4(self):
+        ja4s = {fingerprint(self._permute(CURL, i))["ja4"] for i in range(40)}
+        assert len(ja4s) == 1
+
+    def test_permuted_hellos_produce_many_ja3(self):
+        ja3s = {fingerprint(self._permute(CURL, i))["ja3"] for i in range(40)}
+        assert len(ja3s) > 20
+
+    def test_permutation_changes_only_extension_order(self):
+        base = parse_client_hello(CURL)
+        other = parse_client_hello(self._permute(CURL, 7))
+        assert base.ciphers == other.ciphers
+        assert base.curves == other.curves
+        assert base.point_formats == other.point_formats
+        assert sorted(base.extensions) == sorted(other.extensions)
+        assert base.extensions != other.extensions
+
+
+class TestResumptionMarkers:
+    """A resumed TLS 1.3 handshake carries pre_shared_key, which changes both
+    the ja4_a extension count and the ja4_c hash — so the same client stack
+    yields a different JA4 cold than resumed. Recorded so that is explainable."""
+
+    def test_absent_on_a_cold_hello(self):
+        hello = parse_client_hello(CURL)
+        assert hello.has_psk is False
+        assert hello.has_early_data is False
+
+    def test_psk_changes_the_ja4(self):
+        cold = parse_client_hello(CURL)
+        resumed = parse_client_hello(CURL)
+        resumed.extensions = sorted([*resumed.extensions, 0x0029])
+        assert compute_ja4(cold)[0] != compute_ja4(resumed)[0]
+
+
+class TestJa4SpecConformance:
+    """Every worked ALPN example from FoxIO's technical_details/JA4.md.
+
+    These were added after checking this implementation against FoxIO's own
+    reference vectors and finding a real bug: `str.isalnum()` is Unicode-aware
+    and answered True for bytes like 0xEF, so a non-ASCII ALPN took the
+    alphanumeric branch and emitted raw bytes instead of the hex fallback.
+
+    One divergence from the reference implementation is deliberate and is
+    covered by `test_non_ascii_alpn_follows_the_spec_not_the_reference_tool`.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (b"\xab", "ab"),
+            (b"\x20", "20"),
+            (b"\xab\xcd", "ad"),
+            (b"\x20\x61", "21"),
+            (b"\x30\xab", "3b"),
+            (b"\x61\x20", "60"),
+            (b"\x30\x31\xab\xcd", "3d"),
+            # And the ordinary alphanumeric path.
+            (b"h2", "h2"),
+            (b"http/1.1", "h1"),
+            (b"h3", "h3"),
+            # A single character is both the first and the last.
+            (b"x", "xx"),
+        ],
+    )
+    def test_alpn_code_matches_the_spec(self, raw, expected):
+        assert _alpn_code([raw.decode("latin-1")]) == expected
+
+    def test_no_alpn_is_double_zero(self):
+        assert _alpn_code([]) == "00"
+        assert _alpn_code([""]) == "00"
+
+    def test_non_ascii_alpn_follows_the_spec_not_the_reference_tool(self):
+        """FoxIO's own vector for tls-non-ascii-alpn.pcapng expects "99" here,
+        and we deliberately produce "bd" instead.
+
+        The reference implementation reads ALPN as a string out of tshark's
+        `tls.handshake.extensions_alpn_str`, by which point every non-UTF-8
+        byte has already become U+FFFD; it then maps that replacement character
+        to '9' (see its own `test_first_last_non_ascii`). The original bytes are
+        gone before it ever sees them, so it cannot apply the spec's hex rule.
+
+        We parse the raw ClientHello off the wire, so we can — and the spec is
+        explicit that 0xAB 0xCD prints as "ad". The captured bytes here are
+        0xBA 0xAD, so the spec-conformant answer is "bd".
+        """
+        assert _alpn_code([b"\xba\xad".decode("latin-1")]) == "bd"
+
+    def test_alpn_bytes_survive_parsing(self):
+        """The bug underneath the bug: decoding ALPN with errors="replace"
+        destroyed the bytes the hex fallback is computed from."""
+        from tlsrep.tls.clienthello import _parse_alpn
+
+        payload = b"\x00\x03\x02\xba\xad"  # list len 3, one 2-byte protocol
+        assert _parse_alpn(payload)[0].encode("latin-1") == b"\xba\xad"

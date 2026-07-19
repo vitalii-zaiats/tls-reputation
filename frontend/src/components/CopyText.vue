@@ -3,10 +3,16 @@
  * Monospace value with click-to-copy. The whole thing is one button so the
  * hit target matches the visible text; state feedback is a text swap, not an icon.
  */
-import { ref, onBeforeUnmount } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
-  value: { type: String, required: true },
+  /**
+   * Null is a real answer, not a mistake: a client that permutes its
+   * ClientHello has no single JA3, and a copy button for `null` would offer to
+   * copy a value that does not exist. Callers that expect the case render
+   * their own explanation; the em dash below is the backstop.
+   */
+  value: { type: String, default: null },
   /** Optional shortened display text; the full `value` is still what gets copied. */
   display: { type: String, default: '' },
   /** Announced to screen readers, e.g. "JA3 fingerprint". */
@@ -15,6 +21,8 @@ const props = defineProps({
 
 const state = ref('idle') // 'idle' | 'copied' | 'failed'
 let timer = null
+
+const hasValue = computed(() => props.value !== null && props.value !== undefined && props.value !== '')
 
 async function copy() {
   if (timer) clearTimeout(timer)
@@ -53,7 +61,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <span class="copytext">
+  <span v-if="!hasValue" class="faint">—</span>
+
+  <span v-else class="copytext">
     <button
       type="button"
       class="value"

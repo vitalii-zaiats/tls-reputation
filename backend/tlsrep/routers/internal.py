@@ -53,12 +53,16 @@ def _authorise(key: str | None) -> None:
 
 
 def _aggregate(hellos: list[bytes]) -> tuple[list[dict], int]:
-    """Collapse a batch into one record per distinct fingerprint.
+    """Collapse a batch into one record per distinct JA4.
 
-    A proxy batch is overwhelmingly repeats of a handful of fingerprints, so
-    folding here turns thousands of round trips into a few dozen.
+    Grouping is by JA4 alone. Grouping by (ja3, ja4) — which is what the schema
+    used to key on — puts a permuting client in a group of one per connection,
+    so a batch of 200 Chrome hellos became 200 records and 200 rows.
+
+    Each record carries the JA3s it saw underneath it. That multiplicity is the
+    signal the site reports as `stability`.
     """
-    grouped: dict[tuple[str, str], dict] = {}
+    grouped: dict[str, dict] = {}
     skipped = 0
 
     for raw in hellos:
@@ -69,7 +73,10 @@ def _aggregate(hellos: list[bytes]) -> tuple[list[dict], int]:
 
         # No SNI means no domain to attribute; the fingerprint still counts.
         sni = parsed.pop("sni", None)
-        key = (parsed["ja3"], parsed["ja4"])
+        ja3 = parsed.pop("ja3")
+        ja3_raw = parsed.pop("ja3_raw")
+        extensions = parsed["extensions"]
+        key = parsed["ja4"]
 
         record = grouped.get(key)
         if record is None:
@@ -77,10 +84,20 @@ def _aggregate(hellos: list[bytes]) -> tuple[list[dict], int]:
                 **parsed,
                 "count": 0,
                 "snis": defaultdict(int),
+                "ja3s": {},
             }
+
         record["count"] += 1
         if sni:
             record["snis"][sni.lower()] += 1
+
+        # (raw string, wire extension order, how many times seen this batch)
+        seen = record["ja3s"].get(ja3)
+        record["ja3s"][ja3] = (
+            ja3_raw,
+            extensions,
+            (seen[2] if seen else 0) + 1,
+        )
 
     return list(grouped.values()), skipped
 

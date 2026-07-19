@@ -21,6 +21,10 @@ EXT_EC_POINT_FORMATS = 0x000B
 EXT_SIG_ALGS = 0x000D
 EXT_ALPN = 0x0010
 EXT_SUPPORTED_VERSIONS = 0x002B
+# Resumption markers. Their presence changes the extension set, and so the
+# JA4, for what is otherwise the same client stack.
+EXT_PRE_SHARED_KEY = 0x0029
+EXT_EARLY_DATA = 0x002A
 
 _HANDSHAKE_RECORD = 0x16
 _CLIENT_HELLO = 0x01
@@ -35,6 +39,15 @@ def is_grease(value: int) -> bool:
 @dataclass
 class ClientHello:
     legacy_version: int
+    # JA4's first character is the transport: t=TCP, q=QUIC, d=DTLS. Carried as
+    # a field rather than hardcoded at hash time, because JA4 is the identity
+    # key — the day a QUIC collector is added, a QUIC hello must not collide
+    # with the TCP hello of the same client.
+    transport: str = "t"
+    # Set when the hello did not arrive whole. A short hello yields a smaller
+    # extension count and a truncated extension set, which produces a
+    # confident, distinct, WRONG JA4. Callers must refuse to store those.
+    truncated: bool = False
     ciphers: list[int] = field(default_factory=list)
     extensions: list[int] = field(default_factory=list)
     curves: list[int] = field(default_factory=list)
@@ -44,6 +57,13 @@ class ClientHello:
     alpn: list[str] = field(default_factory=list)
     sni: str | None = None
     has_sni_ext: bool = False
+    # A resumed TLS 1.3 handshake carries pre_shared_key (and 0-RTT adds
+    # early_data). Both change the extension count in ja4_a and the sorted
+    # set in ja4_c, so the same client stack yields a different JA4 cold
+    # than resumed. Recorded so that difference is explainable rather than
+    # appearing as two unrelated clients.
+    has_psk: bool = False
+    has_early_data: bool = False
 
     @property
     def negotiated_version(self) -> int:
@@ -139,7 +159,12 @@ def _parse_alpn(payload: bytes) -> list[str]:
         proto = reader.take(min(proto_len, reader.remaining))
         consumed += 1 + len(proto)
         if proto:
-            protocols.append(proto.decode("ascii", errors="replace"))
+            # latin-1, not ascii+replace: it maps bytes 1:1 onto U+0000..U+00FF,
+            # so the original bytes survive and can be recovered exactly.
+            # Decoding with errors="replace" turned every non-ASCII ALPN into
+            # U+FFFD before JA4 ever saw it, destroying the very bytes the
+            # spec's hex fallback is computed from.
+            protocols.append(proto.decode("latin-1"))
     return protocols
 
 
@@ -156,21 +181,25 @@ def parse_client_hello(data: bytes) -> ClientHello | None:
     TLS records is reassembled — browsers do this once the hello outgrows a
     single record, and a parser that ignores it silently loses those clients.
     """
-    handshake = _reassemble_handshake(data)
-    if handshake is None:
+    result = _reassemble_handshake(data)
+    if result is None:
         return None
+    handshake, truncated = result
 
     try:
-        return _parse_handshake_body(handshake)
+        hello = _parse_handshake_body(handshake)
     except _Truncated:
         return None
 
+    hello.truncated = truncated
+    return hello
 
-def _reassemble_handshake(data: bytes) -> bytes | None:
+
+def _reassemble_handshake(data: bytes) -> tuple[bytes, bool] | None:
     """Concatenate the handshake payloads of consecutive TLS records.
 
-    Returns the handshake message body (past the 4-byte handshake header), or
-    None if this isn't a ClientHello.
+    Returns (handshake message body past the 4-byte header, truncated flag),
+    or None if this isn't a ClientHello.
     """
     reader = _Reader(data)
     payload = bytearray()
@@ -195,9 +224,13 @@ def _reassemble_handshake(data: bytes) -> bytes | None:
 
     declared = int.from_bytes(payload[1:4], "big")
     body = bytes(payload[4:])
-    # Accept a short body: a truncated hello still yields a usable prefix, and
-    # rejecting it would drop every client whose capture was cut short.
-    return body[:declared] if len(body) >= declared else body
+    # A short body still parses into something, but what it parses into is a
+    # LIE: fewer extensions than the client actually sent means a different
+    # ja4_a count and a different ja4_c hash — a confident, distinct, wrong
+    # identity. Report the shortfall so the caller can refuse to store it.
+    if len(body) >= declared:
+        return body[:declared], False
+    return body, True
 
 
 def _parse_handshake_body(body: bytes) -> ClientHello:
@@ -244,6 +277,11 @@ def _parse_handshake_body(body: bytes) -> ClientHello:
             # A malformed extension body costs us that one field, not the hello.
             continue
 
+    # Leftover bytes that are too few to form another extension header mean the
+    # block was cut mid-entry: the extension list we just built is incomplete.
+    if ext_reader.remaining:
+        hello.truncated = True
+
     return hello
 
 
@@ -259,6 +297,10 @@ def _decode_extension(hello: ClientHello, ext_type: int, ext_data: bytes) -> Non
         hello.sig_algs = [s for s in _u16_list(ext_data) if not is_grease(s)]
     elif ext_type == EXT_ALPN:
         hello.alpn = _parse_alpn(ext_data)
+    elif ext_type == EXT_PRE_SHARED_KEY:
+        hello.has_psk = True
+    elif ext_type == EXT_EARLY_DATA:
+        hello.has_early_data = True
     elif ext_type == EXT_SUPPORTED_VERSIONS:
         reader = _Reader(ext_data)
         count = reader.u8()

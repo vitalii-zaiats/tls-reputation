@@ -46,6 +46,14 @@ def _sha12(payload: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
+def _is_ascii_alnum(byte: int) -> bool:
+    return (
+        0x30 <= byte <= 0x39  # 0-9
+        or 0x41 <= byte <= 0x5A  # A-Z
+        or 0x61 <= byte <= 0x7A  # a-z
+    )
+
+
 def _alpn_code(alpn: list[str]) -> str:
     """First and last character of the first ALPN value.
 
@@ -54,10 +62,17 @@ def _alpn_code(alpn: list[str]) -> str:
     """
     if not alpn or not alpn[0]:
         return "00"
-    value = alpn[0].encode("utf-8", errors="replace")
+    value = alpn[0].encode("latin-1", errors="replace")
     first, last = value[0], value[-1]
-    if chr(first).isalnum() and chr(last).isalnum():
+    # ASCII alphanumeric, checked on the byte. str.isalnum() is Unicode-aware
+    # and answers True for bytes like 0xEF ('ï'), which sent non-ASCII ALPNs
+    # down the wrong branch — verified against FoxIO's tls-non-ascii-alpn
+    # vector, which expects the hex fallback here.
+    if _is_ascii_alnum(first) and _is_ascii_alnum(last):
         return f"{chr(first)}{chr(last)}"
+    # The spec's fallback: first and last character of the first ALPN's hex
+    # representation — i.e. the high nibble of the first byte and the low
+    # nibble of the last.
     return f"{first >> 4:x}{last & 0x0F:x}"
 
 
@@ -66,8 +81,11 @@ def compute_ja4(hello: ClientHello) -> tuple[str, str]:
     cipher_count = min(len(hello.ciphers), 99)
     ext_count = min(len(hello.extensions), 99)
 
+    # The transport prefix comes from the hello, not from a literal: a QUIC
+    # ClientHello from the same client must not produce the same JA4 as its
+    # TCP one, and JA4 is the identity key.
     part_a = (
-        f"t{_version_code(hello.negotiated_version)}"
+        f"{hello.transport}{_version_code(hello.negotiated_version)}"
         f"{'d' if hello.has_sni_ext else 'i'}"
         f"{cipher_count:02d}{ext_count:02d}{_alpn_code(hello.alpn)}"
     )

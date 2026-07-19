@@ -101,6 +101,9 @@ export const api = {
   snis: ({ sort, limit, offset, ...opts } = {}) =>
     request('/snis', { params: { sort, limit, offset }, ...opts }),
 
+  /** ALPN offer lists across the whole corpus. Takes no parameters. */
+  alpn: (opts) => request('/alpn', opts),
+
   search: (q, opts) => request('/search', { params: { q }, ...opts }),
 
   stats: (opts) => request('/stats', opts),

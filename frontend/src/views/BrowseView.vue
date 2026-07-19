@@ -5,6 +5,7 @@ import { api } from '../api.js'
 import { formatDate, formatInt, truncateMiddle } from '../format.js'
 import DataTable from '../components/DataTable.vue'
 import SpreadBar from '../components/SpreadBar.vue'
+import StabilityBadge from '../components/StabilityBadge.vue'
 import Pagination from '../components/Pagination.vue'
 
 const route = useRoute()
@@ -18,10 +19,13 @@ const VALID_TABS = TABS.map((t) => t.value)
 
 // Each mode has its own sort vocabulary; the backend rejects anything else.
 const SORTS = {
+  // No sort key for stability: the API does not offer one, and it is a class
+  // rather than a magnitude, so there is no obvious direction to sort it in.
   fingerprints: [
     { value: 'observations', label: 'observations' },
     { value: 'unique_snis', label: 'unique snis' },
     { value: 'spread', label: 'spread' },
+    { value: 'last_seen', label: 'last seen' },
   ],
   domains: [
     { value: 'observations', label: 'observations' },
@@ -111,9 +115,11 @@ function setOffset(next) {
 const fpColumns = [
   { key: 'ja4', label: 'ja4', mono: true },
   { key: 'ja3', label: 'ja3', mono: true },
+  { key: 'stability', label: 'stability' },
   { key: 'observations', label: 'observations', align: 'right', sortable: true },
   { key: 'unique_snis', label: 'unique snis', align: 'right', sortable: true },
   { key: 'spread', label: 'spread', align: 'right', sortable: true, width: '10rem' },
+  { key: 'last_seen', label: 'last seen', align: 'right', sortable: true },
 ]
 
 const domainColumns = [
@@ -134,8 +140,8 @@ function fpKey(row) {
     <header class="head">
       <h1>Browse the corpus</h1>
       <p v-if="!isDomains">
-        Every fingerprint in the corpus, newest observations included. Sort by raw volume, by how
-        many distinct server names the fingerprint reached, or by spread.
+        Every fingerprint in the corpus, keyed on JA4. Sort by raw volume, by how many distinct
+        server names the fingerprint reached, by spread, or by recency.
       </p>
       <p v-else>
         Every server name observed in the corpus. Sort by raw volume, by how many distinct
@@ -203,11 +209,15 @@ function fpKey(row) {
         </RouterLink>
         <span v-else class="faint">—</span>
       </template>
+      <template #cell-stability="{ value }">
+        <StabilityBadge :stability="value" />
+      </template>
       <template #cell-observations="{ value }">{{ formatInt(value) }}</template>
       <template #cell-unique_snis="{ value }">{{ formatInt(value) }}</template>
       <template #cell-spread="{ value }">
         <SpreadBar :value="value" width="4rem" />
       </template>
+      <template #cell-last_seen="{ value }">{{ formatDate(value) }}</template>
     </DataTable>
 
     <DataTable
@@ -241,20 +251,38 @@ function fpKey(row) {
       @update="setOffset"
     />
 
-    <p v-if="!isDomains" class="footnote">
-      <strong>Spread</strong> is the normalised Shannon entropy of a fingerprint's SNI
-      distribution: 0 = always the same domain, 1 = evenly spread across many unrelated domains.
-      High spread on a high-volume fingerprint indicates tooling, not a browser. Low volume makes
-      spread unreliable — a fingerprint seen twice, on two domains, scores 1.0 and means nothing.
-    </p>
+    <template v-if="!isDomains">
+      <p class="footnote">
+        <strong>Spread</strong> is the normalised Shannon entropy of a fingerprint's SNI
+        distribution: 0 = always the same domain, 1 = evenly spread across many unrelated
+        domains. It measures reach, and reach alone is not a verdict — one JA4 aggregates every
+        install of a build, so a popular browser scores high for the same reason a scraper does.
+        Low volume makes it unreliable in the other direction: a fingerprint seen twice, on two
+        domains, scores 1.0 and means nothing.
+      </p>
+      <p class="footnote">
+        <strong>Stability</strong> is the second axis and reads independently of the first. It
+        says whether the client stack randomises its own fingerprint, which is a property of the
+        software rather than of who is running it. A <span class="mono">fixed</span> stack that
+        also reaches many unrelated domains is the combination worth opening;
+        <span class="mono">randomizing</span> with broad reach is what an ordinary browser looks
+        like.
+      </p>
+      <p class="footnote">
+        <span class="mono">ja3</span> is blank whenever more than one JA3 has been seen under a
+        JA4. A client that permutes its ClientHello has no single hash, and a representative one
+        would never match again — open the fingerprint to see every variant it has emitted.
+      </p>
+    </template>
     <p v-else class="footnote">
       <strong>Spread</strong> here is the mirror metric: the normalised Shannon entropy of the
       fingerprints reaching a domain. 0 = essentially one client stack; the middle range is what
       ordinary traffic looks like, an uneven mix of real clients; near 1.0 means many distinct
-      fingerprints in near-equal proportion. On a busy public site that can be normal, but on a
-      login or API endpoint it is the shape of one actor rotating fingerprints. Read it against
+      client stacks in near-equal proportion. Read it against
       <span class="mono">observations</span> and <span class="mono">unique fingerprints</span> —
-      1.0 over three connections is noise, 1.0 over sixty thousand is a finding.
+      1.0 over three connections is noise, 1.0 over sixty thousand is worth a look. What it does
+      not tell you is who: with no per-connection identity in the corpus, a high figure is
+      equally consistent with a varied audience and with one actor cycling through TLS stacks.
     </p>
   </div>
 </template>

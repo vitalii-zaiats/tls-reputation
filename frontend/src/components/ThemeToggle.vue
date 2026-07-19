@@ -31,11 +31,32 @@ function apply(next) {
   }
 }
 
+function stored() {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY)
+    return value === 'light' || value === 'dark' ? value : 'auto'
+  } catch {
+    return 'auto'
+  }
+}
+
 onMounted(() => {
-  // The inline script in index.html already set the attribute; read it back so
-  // the control renders in the correct state.
-  const attr = document.documentElement.getAttribute('data-theme')
-  mode.value = attr === 'light' || attr === 'dark' ? attr : 'auto'
+  // Re-assert from storage rather than reading back the DOM attribute the
+  // inline script set. Storage is the source of truth; the attribute is a
+  // derived value, and anything that strips it between first paint and mount
+  // would otherwise leave the page silently on the wrong theme with no way
+  // back short of clicking the toggle again.
+  apply(stored())
+})
+
+// A choice made in one tab applies to the others.
+window.addEventListener('storage', (event) => {
+  if (event.key === STORAGE_KEY) apply(stored())
+})
+
+// Restoring from the back/forward cache skips the inline script, so re-assert.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) apply(stored())
 })
 </script>
 
@@ -74,9 +95,16 @@ onMounted(() => {
 
 .opt:hover:not(:disabled) {
   border-color: transparent;
+  color: var(--text);
 }
 
+/* The active segment has to be unmistakable: it is the only thing telling you
+   the choice was remembered. The shared .control[aria-pressed] rule supplies a
+   border this track deliberately hides, and .opt's own `background: none`
+   cancels its fill at equal specificity — so state both here explicitly. */
 .opt[aria-pressed="true"] {
+  background: var(--amber-soft);
+  color: var(--link);
   border-color: transparent;
 }
 </style>

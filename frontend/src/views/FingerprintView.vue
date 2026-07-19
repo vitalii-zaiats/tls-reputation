@@ -2,11 +2,19 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { api, ApiError } from '../api.js'
-import { classifyQuery, formatInt, formatShare, formatDate, tlsEntryLabel } from '../format.js'
+import {
+  classifyQuery,
+  formatInt,
+  formatShare,
+  formatDate,
+  formatVariantCount,
+  truncateMiddle,
+} from '../format.js'
 import DataTable from '../components/DataTable.vue'
 import StatGrid from '../components/StatGrid.vue'
 import CopyText from '../components/CopyText.vue'
 import SpreadBar from '../components/SpreadBar.vue'
+import StabilityBadge from '../components/StabilityBadge.vue'
 import Pagination from '../components/Pagination.vue'
 
 const route = useRoute()
@@ -76,12 +84,49 @@ const statItems = computed(() => {
       value: fp.value.spread,
       title:
         '0 = always the same domain, 1 = evenly spread across many unrelated domains. ' +
-        'High spread on a high-volume fingerprint indicates tooling, not a browser.',
+        'A measure of reach, not of intent.',
+    },
+    {
+      key: 'stability',
+      label: 'stability',
+      value: fp.value.stability,
+      title:
+        'Does this client stack randomise its own fingerprint? A property of the software, ' +
+        'and independent of how widely it roams.',
     },
     { key: 'first_seen', label: 'first seen', value: formatDate(fp.value.first_seen) },
     { key: 'last_seen', label: 'last seen', value: formatDate(fp.value.last_seen) },
   ]
 })
+
+/* ---- JA3 variants ---- */
+
+const variants = computed(() => fp.value?.ja3_variants ?? null)
+const variantItems = computed(() => variants.value?.items ?? [])
+
+/**
+ * Only worth a section when there is more than one. A deterministic stack has
+ * exactly one JA3 and it is already in the header.
+ */
+const showVariants = computed(() => (variants.value?.total ?? 0) > 1 && variantItems.value.length > 0)
+
+/** "128+" past the cap: the stored count is a floor, not a total. */
+const variantCount = computed(() =>
+  formatVariantCount(variants.value?.total, variants.value?.capped),
+)
+
+const variantColumns = [
+  { key: 'ja3', label: 'ja3', mono: true },
+  { key: 'ja3_raw', label: 'ja3 raw', mono: true },
+  { key: 'observations', label: 'observations', align: 'right' },
+  { key: 'share', label: 'share', align: 'right' },
+]
+
+function variantShare(row) {
+  const total = fp.value?.observations || 0
+  if (!total) return null
+  return row.observations / total
+}
 
 /* ---- decoded ClientHello ---- */
 
@@ -89,7 +134,14 @@ const helloSections = computed(() => {
   if (!fp.value) return []
   return [
     { key: 'cipher_suites', label: 'Cipher suites', entries: fp.value.cipher_suites || [] },
-    { key: 'extensions', label: 'Extensions', entries: fp.value.extensions || [] },
+    {
+      key: 'extensions',
+      label: 'Extensions',
+      entries: fp.value.extensions || [],
+      // Under one JA4 the wire order varies from connection to connection, so
+      // presenting one arrival's order as "the" order would invent a fact.
+      sorted: fp.value.extensions_sorted === true,
+    },
     { key: 'curves', label: 'Supported groups', entries: fp.value.curves || [] },
     { key: 'sig_algs', label: 'Signature algorithms', entries: fp.value.sig_algs || [] },
   ]
@@ -126,9 +178,15 @@ const sniColumns = [
         that simply has not reached our sensors, the value is mistyped, or it is not a fingerprint
         at all.
       </p>
+      <p v-if="kind === 'ja3'">
+        For a JA3 there is a fourth possibility, and it is the likely one. A client that
+        permutes its ClientHello emits a new JA3 on every connection, so an unseen JA3 does not
+        mean an unseen client. Look the same client up by its <strong>JA4</strong>, which is
+        stable across those permutations and is the identity this corpus is keyed on.
+      </p>
       <p>
         Absence is not a verdict. A fingerprint missing from this corpus is not thereby
-        trustworthy, and one present in it is not thereby hostile — read the spread.
+        trustworthy, and one present in it is not thereby hostile.
       </p>
       <p class="links">
         <RouterLink to="/">new lookup</RouterLink> ·
@@ -140,15 +198,6 @@ const sniColumns = [
       <header class="head">
         <h1>Fingerprint</h1>
         <dl class="kv">
-          <dt>JA3</dt>
-          <dd><CopyText :value="fp.ja3" label="JA3 hash" /></dd>
-
-          <dt>JA3 raw</dt>
-          <dd class="wrap">
-            <CopyText v-if="fp.ja3_raw" :value="fp.ja3_raw" label="JA3 raw string" />
-            <span v-else class="faint">—</span>
-          </dd>
-
           <dt>JA4</dt>
           <dd><CopyText :value="fp.ja4" label="JA4 string" /></dd>
 
@@ -157,7 +206,50 @@ const sniColumns = [
             <CopyText v-if="fp.ja4_r" :value="fp.ja4_r" label="JA4 raw string" />
             <span v-else class="faint">—</span>
           </dd>
+
+          <dt>JA3</dt>
+          <dd class="wrap">
+            <CopyText v-if="fp.ja3" :value="fp.ja3" label="JA3 hash" />
+            <!-- Null is the answer, not a gap. A "representative" JA3 for a
+                 permuting client is a value that never matches again. -->
+            <span v-else class="explain">
+              no single JA3 — this client permutes its ClientHello, so it emits a different
+              hash on almost every connection. Every one we have recorded is listed below.
+            </span>
+          </dd>
+
+          <dt>JA3 raw</dt>
+          <dd class="wrap">
+            <CopyText v-if="fp.ja3_raw" :value="fp.ja3_raw" label="JA3 raw string" />
+            <span v-else class="faint">—</span>
+          </dd>
         </dl>
+
+        <!-- Only the /ja3 route carries this: it says what the hash you typed
+             resolved to, and whether that resolution was unambiguous. -->
+        <div v-if="fp.matched_ja3" class="matched">
+          <p v-if="fp.matched_ja3.canonical" class="matched-line">
+            You looked up the JA3
+            <span class="mono">{{ truncateMiddle(fp.matched_ja3.ja3, 12, 6) }}</span
+            >. It is one of {{ variantCount }} JA3s emitted by this JA4, and it is emitted by
+            no other. JA4 is the identity here; JA3 is a variant of it.
+          </p>
+          <template v-else>
+            <p class="matched-line">
+              The JA3 <span class="mono">{{ truncateMiddle(fp.matched_ja3.ja3, 12, 6) }}</span>
+              is not unique to one client stack — it has also been observed under the JA4s
+              below. This page shows the busiest of them, which may not be the one you meant.
+            </p>
+            <ul class="alts">
+              <li v-for="alt in fp.matched_ja3.also_seen_under" :key="alt.ja4">
+                <RouterLink :to="{ name: 'fingerprint', params: { hash: alt.ja4 } }">
+                  {{ alt.ja4 }}
+                </RouterLink>
+                <span class="muted nums">{{ formatInt(alt.observations) }} obs</span>
+              </li>
+            </ul>
+          </template>
+        </div>
       </header>
 
       <section class="section">
@@ -166,11 +258,71 @@ const sniColumns = [
           <template #value-spread="{ item }">
             <SpreadBar :value="item.value" width="5rem" />
           </template>
+          <template #value-stability="{ item }">
+            <StabilityBadge :stability="item.value" show-variants />
+          </template>
         </StatGrid>
         <p class="footnote">
           <strong>Spread</strong> is the normalised Shannon entropy of this fingerprint's SNI
-          distribution. 0 = always the same domain, 1 = evenly spread across many unrelated
-          domains. High spread on a high-volume fingerprint indicates tooling, not a browser.
+          distribution: 0 = always the same domain, 1 = evenly spread across many unrelated
+          domains. It measures reach, not intent. One JA4 aggregates every install of a build,
+          so a popular browser reaches thousands of domains and scores close to 1 for the same
+          reason a scraper does. This corpus stores no per-connection identity — that is what
+          makes it publishable — so it cannot distinguish one client reaching 500 domains from
+          500 clients reaching one each.
+        </p>
+        <!-- The tooltip on the chip is not reachable by keyboard, so the same
+             sentence is stated here in the page. -->
+        <p v-if="fp.stability" class="footnote">
+          <strong>Stability</strong> is the other axis, and unlike spread it is a claim the
+          corpus can support, because it is a property of the software:
+          {{ fp.stability.explanation }}
+          <template v-if="fp.stability.dominant_variant_share !== undefined">
+            The busiest single JA3 carries
+            {{ formatShare(fp.stability.dominant_variant_share) }} of this fingerprint's
+            connections.
+          </template>
+          <template v-if="fp.stability.note">{{ fp.stability.note }}</template>
+          Read the two together: a stack that never varies its own hello and still reaches many
+          unrelated domains is the interesting case. A randomising stack with broad reach is
+          usually just a popular browser.
+        </p>
+      </section>
+
+      <section v-if="showVariants" class="section">
+        <h2>JA3 variants</h2>
+        <p class="variants-lead">
+          {{ variantCount }} distinct JA3 hashes have been recorded under this JA4. Each is one
+          permutation of the same ClientHello.
+        </p>
+        <DataTable
+          :columns="variantColumns"
+          :rows="variantItems"
+          row-key="ja3"
+          caption="The distinct JA3 hashes this fingerprint has emitted"
+          empty-text="No JA3 variants recorded."
+        >
+          <template #cell-ja3="{ value }">
+            <RouterLink :to="{ name: 'fingerprint', params: { hash: value } }">
+              {{ truncateMiddle(value, 14, 6) }}
+            </RouterLink>
+          </template>
+          <template #cell-ja3_raw="{ value }">
+            <span :title="value">{{ truncateMiddle(value, 32, 10) }}</span>
+          </template>
+          <template #cell-observations="{ value }">{{ formatInt(value) }}</template>
+          <template #cell-share="{ row }">{{ formatShare(variantShare(row)) }}</template>
+        </DataTable>
+        <p class="footnote">
+          <template v-if="variantItems.length < variants.total">
+            Showing the {{ formatInt(variantItems.length) }} busiest of {{ variantCount }}.
+          </template>
+          <template v-if="variants.capped">
+            The corpus stops recording new JA3s for a fingerprint once it has seen enough of
+            them to classify it, so that figure is a floor, not a total.
+          </template>
+          JA3 hashes the extension list in the order it arrived on the wire; JA4 sorts it
+          first. That single difference is why all of these collapse into one JA4.
         </p>
       </section>
 
@@ -180,11 +332,14 @@ const sniColumns = [
           <dt>TLS version</dt>
           <dd>{{ fp.tls_version || '—' }}</dd>
           <dt>ALPN</dt>
-          <dd>{{ fp.alpn?.length ? fp.alpn.join(', ') : '—' }}</dd>
+          <dd>{{ fp.alpn?.length ? fp.alpn.join(', ') : '(none offered)' }}</dd>
         </dl>
 
         <div v-for="sec in helloSections" :key="sec.key" class="hello">
-          <h3>{{ sec.label }} <span class="muted nums">({{ sec.entries.length }})</span></h3>
+          <h3>
+            {{ sec.label }} <span class="muted nums">({{ sec.entries.length }})</span>
+            <span v-if="sec.sorted" class="tag">sorted</span>
+          </h3>
           <ul v-if="sec.entries.length" class="entries">
             <li v-for="(entry, i) in sec.entries" :key="`${entry.value}-${i}`">
               <span class="hex">{{ entry.value }}</span>
@@ -192,6 +347,11 @@ const sniColumns = [
             </li>
           </ul>
           <p v-else class="status">none advertised.</p>
+          <p v-if="sec.sorted" class="footnote">
+            Listed in sorted order, which is not the order this client sent them. Under one JA4
+            the wire order varies from connection to connection — that variation is exactly
+            what the JA3 variants above record.
+          </p>
         </div>
       </section>
 
@@ -236,6 +396,53 @@ const sniColumns = [
   overflow-wrap: anywhere;
 }
 
+/* A sentence standing in for a value. Sans-serif so it does not read as a
+   fingerprint, and narrow so it does not fight the definition list. */
+.explain {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  display: block;
+  max-width: var(--measure);
+}
+
+.matched {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--panel);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.matched-line {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin: 0;
+}
+
+.alts {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.alts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-1) 0;
+  overflow-wrap: anywhere;
+}
+
+.variants-lead {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin-bottom: var(--sp-3);
+}
+
 .hello {
   margin-top: var(--sp-5);
 }
@@ -245,6 +452,19 @@ const sniColumns = [
   font-size: var(--fs-sm);
   font-weight: 600;
   margin-bottom: var(--sp-2);
+}
+
+/* Says how the list is ordered, without claiming it is the client's order. */
+.tag {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--dim);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-chip);
+  padding: 1px var(--sp-2);
+  margin-left: var(--sp-2);
+  vertical-align: 1px;
 }
 
 .entries {
