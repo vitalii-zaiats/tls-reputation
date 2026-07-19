@@ -389,6 +389,9 @@ async def list_snis(
                 "observations": int(r["observations"]),
                 "unique_fingerprints": r["unique_fingerprints"],
                 "spread": round(r["spread"], 4),
+                # A name-based hint, not a verdict. Auth-like plus many distinct
+                # fingerprints is the credential-stuffing shape.
+                "category": sni_category(r["sni"]),
                 "first_seen": _iso(r["first_seen"]),
                 "last_seen": _iso(r["last_seen"]),
             }
