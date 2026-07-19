@@ -13,6 +13,16 @@
     _tlsrep_deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
   tags: [always]
 
+# deb822_repository parses and emits .sources files with python3-debian, which
+# noble does not install by default.
+- name: Install the apt repository prerequisites
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [setup]
+
 - name: Create the apt keyring directory
   ansible.builtin.file:
     path: /etc/apt/keyrings

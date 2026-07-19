@@ -1,0 +1,34 @@
+---
+# ---------------------------------------------------------------------------
+# TEMPLATE ONLY -- contains no real secrets. Copy, fill in, then encrypt:
+#
+#   cp vault.yml.example vault.yml
+#   $EDITOR vault.yml
+#   ansible-vault encrypt vault.yml
+#
+# Edit later with:  ansible-vault edit inventory/group_vars/all/vault.yml
+#
+# vault.yml is gitignored. Never commit it decrypted.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# GHCR (GitHub Container Registry) token.
+#
+# THIS FILE IS OPTIONAL. The tls-reputation packages are public, so the
+# servers can pull them anonymously and no login is needed. Every role treats
+# the token as optional (`vault_ghcr_token | default('')`) and the docker role
+# skips `docker_login` entirely when it is empty.
+#
+# You need it when:
+#   - you make any of the three packages private, or
+#   - anonymous pull rate limits start biting.
+#
+# Create one at https://github.com/settings/tokens (classic) with scope:
+#   read:packages     -- what the SERVERS need, and all they should have
+#   write:packages    -- what YOUR LAPTOP needs for `make push`; keep that
+#                        token in your local docker credential store, not here
+#
+# Give the servers a read-only token. A deploy never pushes.
+# ---------------------------------------------------------------------------
+
+vault_ghcr_token: "ghp_CHANGEME-read-packages-token"
