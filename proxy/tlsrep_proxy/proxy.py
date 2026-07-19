@@ -17,6 +17,8 @@ import logging
 import re
 import struct
 
+from .guard import BlockedDestination, resolve_public
+
 log = logging.getLogger(__name__)
 
 _HTTP_REQUEST_RE = re.compile(r"^[A-Z]{3,10} \S+ HTTP/\d\.\d\r?\n?$")
@@ -77,12 +79,33 @@ class ProxyServer:
         host: str,
         port: int,
     ) -> None:
+        # Resolve and vet the destination before opening anything. An open
+        # CONNECT proxy with no destination policy is an SSRF lever aimed at
+        # the host's own loopback services (including the other tenant's), the
+        # cloud metadata address, and the private network. Only public unicast
+        # destinations are allowed, and the connection is made to the vetted
+        # IP rather than re-resolving the name.
         try:
-            remote_r, remote_w = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=self._connect_timeout
+            endpoints = await asyncio.get_running_loop().run_in_executor(
+                None, resolve_public, host, port
             )
-        except (OSError, TimeoutError) as exc:
-            log.warning("connect failed %s:%d -> %s", host, port, exc)
+        except BlockedDestination as exc:
+            log.warning("blocked CONNECT %s:%d -> %s", host, port, exc)
+            client_w.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            with_suppressed(client_w.drain)
+            return
+
+        remote_r = remote_w = None
+        for family, addr, dst_port in endpoints:
+            try:
+                remote_r, remote_w = await asyncio.wait_for(
+                    asyncio.open_connection(addr, dst_port, family=family),
+                    timeout=self._connect_timeout,
+                )
+                break
+            except (OSError, TimeoutError) as exc:
+                log.warning("connect failed %s:%d -> %s", addr, dst_port, exc)
+        if remote_w is None:
             client_w.write(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
             with_suppressed(client_w.drain)
             return
