@@ -29,7 +29,10 @@ function buildUrl(path, params) {
   if (!params) return url
   const qs = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue
+    // Absence is undefined/null; an empty string is a real value. The ALPN
+    // filter relies on this — `alpn=` selects clients that offered no ALPN,
+    // which is a distinct population, not "no filter".
+    if (value === undefined || value === null) continue
     qs.append(key, String(value))
   }
   const query = qs.toString()
@@ -95,8 +98,8 @@ export const api = {
   sni: (domain, { limit, offset, ...opts } = {}) =>
     request(`/sni/${encodeURIComponent(domain)}`, { params: { limit, offset }, ...opts }),
 
-  fingerprints: ({ sort, limit, offset, ...opts } = {}) =>
-    request('/fingerprints', { params: { sort, limit, offset }, ...opts }),
+  fingerprints: ({ sort, limit, offset, alpn, ...opts } = {}) =>
+    request('/fingerprints', { params: { sort, limit, offset, alpn }, ...opts }),
 
   snis: ({ sort, limit, offset, ...opts } = {}) =>
     request('/snis', { params: { sort, limit, offset }, ...opts }),

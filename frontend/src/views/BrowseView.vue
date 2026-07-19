@@ -60,6 +60,42 @@ const offset = computed(() => {
 
 const isDomains = computed(() => tab.value === 'domains')
 
+// The ALPN filter (fingerprints tab only). Sentinels chosen so they cannot
+// collide with a real offer list: NONE is the no-ALPN population, and the
+// value on the wire is an empty string; ANY means no filter and is dropped.
+const ALPN_ANY = '__any__'
+const ALPN_NONE = '__none__'
+
+// Available offer lists, loaded once from /api/v1/alpn. Order preserved — the
+// whole point is that `h2, http/1.1` and `http/1.1, h2` are different.
+const alpnOptions = ref([])
+
+// The active filter, from the URL so it is linkable and survives reload.
+const alpnFilter = computed(() =>
+  isDomains.value ? ALPN_ANY : route.query.alpn ?? ALPN_ANY,
+)
+
+/** The value sent to the backend: undefined = no filter, '' = no ALPN offered. */
+function alpnParam() {
+  if (isDomains.value || alpnFilter.value === ALPN_ANY) return undefined
+  if (alpnFilter.value === ALPN_NONE) return ''
+  return alpnFilter.value
+}
+
+async function loadAlpnOptions() {
+  try {
+    const data = await api.alpn()
+    alpnOptions.value = (data?.items ?? []).map((item) => ({
+      // label null means the client advertised no ALPN at all.
+      value: item.label === null ? ALPN_NONE : item.label,
+      label: item.label ?? '(none offered)',
+      fingerprints: item.fingerprints,
+    }))
+  } catch {
+    alpnOptions.value = []
+  }
+}
+
 let requestId = 0
 
 async function load() {
@@ -68,7 +104,9 @@ async function load() {
   error.value = null
   try {
     const params = { sort: sort.value, limit: PAGE, offset: offset.value }
-    const data = isDomains.value ? await api.snis(params) : await api.fingerprints(params)
+    const data = isDomains.value
+      ? await api.snis(params)
+      : await api.fingerprints({ ...params, alpn: alpnParam() })
     if (id !== requestId) return
     items.value = data?.items ?? []
     total.value = data?.total ?? 0
@@ -82,7 +120,23 @@ async function load() {
   }
 }
 
-watch([tab, sort, offset], load, { immediate: true })
+watch([tab, sort, offset, alpnFilter], load, { immediate: true })
+
+// Filter options are needed only on the fingerprints tab; fetch once.
+watch(
+  tab,
+  (next) => {
+    if (next === 'fingerprints' && !alpnOptions.value.length) loadAlpnOptions()
+  },
+  { immediate: true },
+)
+
+function setAlpn(value) {
+  if (value === alpnFilter.value) return
+  const query = { tab: tab.value, sort: sort.value } // changing the filter restarts paging
+  if (value !== ALPN_ANY) query.alpn = value
+  router.push({ name: 'browse', query })
+}
 
 // The router's meta title is per-route, so the mode has to set its own.
 watch(
@@ -99,16 +153,27 @@ function setTab(next) {
   router.push({ name: 'browse', query: { tab: next } })
 }
 
+// The ALPN filter is preserved across sort and paging changes — only the tab
+// switch, which changes what a filter even means, drops it.
+function withAlpn(query) {
+  if (!isDomains.value && alpnFilter.value !== ALPN_ANY) query.alpn = alpnFilter.value
+  return query
+}
+
 function setSort(key) {
   const allowed = sortOptions.value.map((s) => s.value)
   if (!allowed.includes(key) || key === sort.value) return
-  router.push({ name: 'browse', query: { tab: tab.value, sort: key } }) // new sort restarts paging
+  router.push({ name: 'browse', query: withAlpn({ tab: tab.value, sort: key }) }) // new sort restarts paging
 }
 
 function setOffset(next) {
   router.push({
     name: 'browse',
-    query: { tab: tab.value, sort: sort.value, ...(next > 0 ? { offset: next } : {}) },
+    query: withAlpn({
+      tab: tab.value,
+      sort: sort.value,
+      ...(next > 0 ? { offset: next } : {}),
+    }),
   })
 }
 
@@ -183,6 +248,30 @@ function fpKey(row) {
           {{ s.label }}
         </button>
       </div>
+    </div>
+
+    <div v-if="!isDomains" class="toolbar">
+      <label class="label" for="alpn-filter">alpn</label>
+      <select
+        id="alpn-filter"
+        class="control select"
+        :value="alpnFilter"
+        @change="setAlpn($event.target.value)"
+      >
+        <option :value="ALPN_ANY">any offer</option>
+        <option
+          v-for="o in alpnOptions"
+          :key="o.value"
+          :value="o.value"
+        >
+          {{ o.label }} ({{ formatInt(o.fingerprints) }})
+        </option>
+      </select>
+      <span class="filter-note">
+        offer order is kept —
+        <span class="mono">http/1.1, h2</span> is not
+        <span class="mono">h2, http/1.1</span>
+      </span>
     </div>
 
     <DataTable
@@ -324,5 +413,24 @@ function fpKey(row) {
   display: inline-flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
+}
+
+/* The ALPN filter is a select rather than chips: the offer lists are many and
+   open-ended, unlike the fixed sort vocabulary. It borrows .control's shape. */
+.select {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-2);
+  max-width: 22rem;
+}
+
+.filter-note {
+  font-size: var(--fs-xs);
+  color: var(--dim);
+}
+
+.filter-note .mono {
+  font-family: var(--font-mono);
+  color: var(--text);
 }
 </style>

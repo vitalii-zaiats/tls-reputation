@@ -386,17 +386,43 @@ SORT_KEYS = tuple(_SORTS)
 
 
 async def list_fingerprints(
-    sort: str, limit: int, offset: int
+    sort: str, limit: int, offset: int, alpn: list[str] | None = None
 ) -> tuple[list[asyncpg.Record], int]:
+    """List fingerprints, optionally filtered to one exact ALPN offer list.
+
+    `alpn` is matched in order and as a whole, not as a set: `['h2','http/1.1']`
+    and `['http/1.1','h2']` are different filters, because the offer order is
+    the signal. Passing `[]` selects clients that advertised no ALPN at all.
+    Passing None applies no filter.
+    """
     order = _SORTS.get(sort, _SORTS["observations"])
+    # A parameterised array equality — never string-interpolated. The ORDER BY
+    # is the only interpolated fragment and it comes from the _SORTS whitelist.
+    # The filter sits at a different parameter index in each query, so each
+    # spells its own: $3 after (limit, offset) in the page query, $1 in the
+    # bare count.
     async with pool().acquire() as conn:
-        rows = await conn.fetch(
-            f"SELECT {_FP_COLUMNS} FROM fingerprints f"
-            f" ORDER BY {order} LIMIT $1 OFFSET $2",
-            limit,
-            offset,
-        )
-        total = await conn.fetchval("SELECT count(*) FROM fingerprints")
+        if alpn is None:
+            rows = await conn.fetch(
+                f"SELECT {_FP_COLUMNS} FROM fingerprints f"
+                f" ORDER BY {order} LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+            total = await conn.fetchval("SELECT count(*) FROM fingerprints")
+        else:
+            rows = await conn.fetch(
+                f"SELECT {_FP_COLUMNS} FROM fingerprints f"
+                f" WHERE f.alpn = $3::text[]"
+                f" ORDER BY {order} LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+                alpn,
+            )
+            total = await conn.fetchval(
+                "SELECT count(*) FROM fingerprints f WHERE f.alpn = $1::text[]",
+                alpn,
+            )
     return rows, total
 
 

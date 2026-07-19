@@ -333,9 +333,25 @@ async def list_fingerprints(
     sort: str = Query("observations", pattern="|".join(db.SORT_KEYS)),
     limit: int = Query(50, ge=1),
     offset: int = Query(0, ge=0),
+    alpn: str | None = Query(
+        None,
+        description=(
+            "Filter to one exact ALPN offer list, comma-joined and IN ORDER "
+            "(e.g. 'h2,http/1.1'). Order matters: 'http/1.1,h2' is a different "
+            "filter and a genuine anomaly. Pass an empty value to select "
+            "clients that offered no ALPN. Omit for no filter."
+        ),
+    ),
 ) -> dict:
     limit = min(limit, settings.max_limit)
-    rows, total = await db.list_fingerprints(sort, limit, offset)
+
+    alpn_filter: list[str] | None = None
+    if alpn is not None:
+        # Present-but-empty ("?alpn=") selects the no-ALPN population; a
+        # non-empty value is split on comma into the offer list, order kept.
+        alpn_filter = [p for p in alpn.split(",") if p] if alpn else []
+
+    rows, total = await db.list_fingerprints(sort, limit, offset, alpn_filter)
     return {"items": [_summary(r) for r in rows], "total": total}
 
 
