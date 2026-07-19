@@ -639,34 +639,62 @@ onMounted(() => {
   inset: 0;
   background:
     radial-gradient(
-      60% 70% at 50% 0%,
-      color-mix(in srgb, var(--amber) 13%, transparent) 0%,
+      62% 72% at 50% 0%,
+      color-mix(in srgb, var(--amber) 22%, transparent) 0%,
       transparent 72%
     );
 }
 
 /* A fine grid, masked to fade out in every direction. Suggests the tabular
-   nature of what the site holds without drawing a table. */
+   nature of what the site holds without drawing a table. Drawn in the stronger
+   line token so it reads as texture rather than disappearing into the surface;
+   the mask still keeps it to a soft patch behind the hero. */
 .grid {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(to right, var(--line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+    linear-gradient(to right, var(--line-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
   background-size: 56px 56px;
-  opacity: 0.5;
-  mask-image: radial-gradient(58% 62% at 50% 34%, #000 0%, transparent 78%);
-  -webkit-mask-image: radial-gradient(58% 62% at 50% 34%, #000 0%, transparent 78%);
+  opacity: 0.7;
+  mask-image: radial-gradient(60% 66% at 50% 32%, #000 0%, transparent 82%);
+  -webkit-mask-image: radial-gradient(60% 66% at 50% 32%, #000 0%, transparent 82%);
 }
 
+/* Light theme: the dark-tuned layers all but vanish on a pale surface — the
+   grid lines sit at nearly the background's own lightness and the amber wash
+   has no darkness to lift. Both are lifted here: the grid onto a darker line,
+   the glow onto a stronger amber, enough to read as texture without becoming a
+   pattern. Written twice — once for an explicit light toggle, once for OS-light
+   with no explicit choice. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .grid {
-    opacity: 0.75;
+    background-image:
+      linear-gradient(to right, var(--line-strong) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
+    opacity: 0.8;
+  }
+  :root:not([data-theme="dark"]) .glow {
+    background: radial-gradient(
+      60% 70% at 50% 0%,
+      color-mix(in srgb, var(--amber) 26%, transparent) 0%,
+      transparent 72%
+    );
   }
 }
 
 :root[data-theme="light"] .grid {
-  opacity: 0.75;
+  background-image:
+    linear-gradient(to right, var(--line-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
+  opacity: 0.8;
+}
+:root[data-theme="light"] .glow {
+  background: radial-gradient(
+    60% 70% at 50% 0%,
+    color-mix(in srgb, var(--amber) 26%, transparent) 0%,
+    transparent 72%
+  );
 }
 
 h1 {
