@@ -3,7 +3,7 @@
 
   "t13d3013h1_1d37bd780c83_8537cf56674e": { "name": "Python requests", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
   "t13d3013h1_1d37bd780c83_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
-  "t13d3013_1d37bd780c83_5ae85263eb3b":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
+  "t13d301300_1d37bd780c83_5ae85263eb3b":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
 
   "t13d1713h1_ab0a1bf427ad_8537cf56674e": { "name": "Python requests", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
   "t13d1713h1_ab0a1bf427ad_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
@@ -15,11 +15,11 @@
 
   "t13d3012h1_1d37bd780c83_882d495ac381": { "name": "Python requests", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm) — 3.9's wider legacy cipher default" },
   "t13d3012h1_1d37bd780c83_8e6e362c5eac": { "name": "Python httpx / aiohttp", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm)" },
-  "t13d3012_1d37bd780c83_89ab6efea773":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm)" },
+  "t13d301200_1d37bd780c83_89ab6efea773":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, standalone OpenSSL 3.5 (uv / macOS-arm)" },
 
   "t13d3514h1_bfa337485184_748dcdc9032a": { "name": "Python requests", "env": "Amazon Linux 2023 (OpenSSL 3)" },
   "t13d3514h1_bfa337485184_412e5362642e": { "name": "Python httpx / aiohttp", "env": "Amazon Linux 2023 (OpenSSL 3)" },
-  "t13d3514_bfa337485184_0b913be0c715":   { "name": "Python urllib (stdlib)", "env": "Amazon Linux 2023 (OpenSSL 3)" },
+  "t13d351400_bfa337485184_0b913be0c715":   { "name": "Python urllib (stdlib)", "env": "Amazon Linux 2023 (OpenSSL 3)" },
 
   "t12d497h1_730fb1b0ac6a_a1e935682795":  { "name": "Python httpx", "env": "Amazon Linux 2 — TLS 1.2 only (OpenSSL 1.0.2)" },
   "t12d867_e18388e7f3a3_a1e935682795":    { "name": "Python urllib (stdlib)", "env": "Amazon Linux 2 — TLS 1.2 only (OpenSSL 1.0.2)" },
@@ -28,9 +28,9 @@
   "t13d1812h1_85036bcba153_1f22a2ca17c4": { "name": "Python httpx / aiohttp", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
   "t13d1813h1_85036bcba153_fb8d5ffd48c1": { "name": "Python urllib (stdlib)", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
 
-  "t13d5910_a33745022dd6_1f22a2ca17c4":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
+  "t13d591000_a33745022dd6_1f22a2ca17c4":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
   "t13d5911h1_a33745022dd6_1f22a2ca17c4": { "name": "Node.js fetch / undici", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
-  "t13d5211_b262b3658495_8e6e362c5eac":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 22 — bundled OpenSSL 3 (newer)" },
+  "t13d521100_b262b3658495_8e6e362c5eac":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 22 — bundled OpenSSL 3 (newer)" },
   "t13d5212h1_b262b3658495_8e6e362c5eac": { "name": "Node.js fetch / undici", "env": "Node 22 — bundled OpenSSL 3 (newer)" },
 
   "t13d1911h2_9dc949149365_e7c285222651": { "name": "Go net/http", "env": "Go 1.21–1.23, CGO / go run — pure-Go TLS, same on any base image" },
@@ -40,21 +40,30 @@
   "_java": "Java TLS is JSSE (pure Java), so the base image is irrelevant — identical on Debian and Alpine — and the JDK major sets the fingerprint. java.net.http and Apache HttpClient5 both use the JDK's default cipher list (same ja4_b 1d947a95fc68); Apache classic offers no ALPN, so its ja4_a lacks h2. OkHttp overrides the cipher list with its own restricted set (ja4_b 5e2a75874763), so it does NOT collapse onto the JDK default.",
   "t13d3112h2_1d947a95fc68_b72e173852fa": { "name": "Java java.net.http (stdlib)", "env": "JDK 11 — pure-Java JSSE, same on any base image" },
   "t13d3113h2_1d947a95fc68_7e1102d2036b": { "name": "Java java.net.http (stdlib)", "env": "JDK 17–21 — pure-Java JSSE, same on any base image" },
-  "t13d3111_1d947a95fc68_b72e173852fa":   { "name": "Java Apache HttpClient 5", "env": "JDK 11 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
-  "t13d3112_1d947a95fc68_7e1102d2036b":   { "name": "Java Apache HttpClient 5", "env": "JDK 17–21 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
+  "t13d311100_1d947a95fc68_b72e173852fa":   { "name": "Java Apache HttpClient 5", "env": "JDK 11 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
+  "t13d311200_1d947a95fc68_7e1102d2036b":   { "name": "Java Apache HttpClient 5", "env": "JDK 17–21 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
   "t13d1113h2_5e2a75874763_a75264be95d7": { "name": "Java OkHttp", "env": "JDK 11 — OkHttp's own restricted cipher list; same on any base image" },
   "t13d1114h2_5e2a75874763_89e9e4bb3419": { "name": "Java OkHttp", "env": "JDK 17–21 — OkHttp's own restricted cipher list; same on any base image" },
 
   "_dotnet": "The .NET HttpClient (SocketsHttpHandler) drives the handshake through the OS OpenSSL, so — like Python — the base image's OpenSSL sets ja4_b and the fingerprint shifts by base: .NET 8 fingerprints differently on Debian and Alpine.",
-  "t13d3110_e8f1e7e78f70_1f22a2ca17c4": { "name": ".NET HttpClient", "env": ".NET 6, Debian 11 (OpenSSL 1.1.1)" },
-  "t13d1211_a538d02d76d5_f6eeaf393d2e": { "name": ".NET HttpClient", "env": ".NET 8–9, Debian 12 (OpenSSL 3)" },
-  "t13d1112_c5d436628c5c_2bdf419a9709": { "name": ".NET HttpClient", "env": ".NET 8, Alpine (musl, OpenSSL 3)" },
+  "t13d311000_e8f1e7e78f70_1f22a2ca17c4": { "name": ".NET HttpClient", "env": ".NET 6, Debian 11 (OpenSSL 1.1.1)" },
+  "t13d121100_a538d02d76d5_f6eeaf393d2e": { "name": ".NET HttpClient", "env": ".NET 8–9, Debian 12 (OpenSSL 3)" },
+  "t13d111200_c5d436628c5c_2bdf419a9709": { "name": ".NET HttpClient", "env": ".NET 8, Alpine (musl, OpenSSL 3)" },
 
   "_rust": "Rust's axis is the TLS backend, not the base image. reqwest/ureq built with rustls (pure Rust) fingerprint identically on Debian and Alpine — base-independent, like Go. reqwest's default native-tls is OpenSSL on Linux, so it shifts by base: Debian and Alpine differ.",
   "t13d1011h1_61a7ad8aa9b6_3fcd1a44f3e3": { "name": "Rust reqwest (rustls)", "env": "rustls — pure-Rust TLS, same on any base image" },
-  "t13d1010_61a7ad8aa9b6_3fcd1a44f3e3":   { "name": "Rust ureq (rustls)", "env": "rustls — pure-Rust TLS, no ALPN; same on any base image" },
-  "t13d3012_1d37bd780c83_ecd0401ec68b":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Debian (OpenSSL 3) — base-dependent" },
-  "t13d3011_1d37bd780c83_8e6e362c5eac":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Alpine (musl, OpenSSL 3) — base-dependent" },
+  "t13d101000_61a7ad8aa9b6_3fcd1a44f3e3":   { "name": "Rust ureq (rustls)", "env": "rustls — pure-Rust TLS, no ALPN; same on any base image" },
+  "t13d301200_1d37bd780c83_ecd0401ec68b":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Debian (OpenSSL 3) — base-dependent" },
+  "t13d301100_1d37bd780c83_8e6e362c5eac":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Alpine (musl, OpenSSL 3) — base-dependent" },
+
+  "_php": "PHP drives TLS through the OS OpenSSL on Linux, so ext-curl shifts by base image (Debian vs Alpine/musl), like Python and .NET. Two distinct TLS paths: ext-curl (libcurl — the default handler under Guzzle and Symfony HttpClient) offers h2 and a 30-cipher list; the native stream wrapper (file_get_contents / stream_socket_client) offers no ALPN and a wide 68-cipher list and is stable across PHP 8.1-8.4 and base image.",
+  "t13d3013h2_1d37bd780c83_8537cf56674e": { "name": "PHP ext-curl (Guzzle / Symfony default)", "env": "PHP 8.1-8.4, Debian (libcurl, OpenSSL 3)" },
+  "t13d3012h2_1d37bd780c83_882d495ac381": { "name": "PHP ext-curl (Guzzle / Symfony default)", "env": "PHP 8.1-8.4, Alpine (musl, libcurl, OpenSSL 3)" },
+  "t13d681100_13e0e9e1c501_8e6e362c5eac":   { "name": "PHP streams (file_get_contents)", "env": "PHP 8.1-8.4, OpenSSL 3.5 — same on Debian & Alpine; no ALPN, wide cipher list" },
+
+  "_dart": "Dart/Flutter bundle BoringSSL statically, so the base image is irrelevant (like Go and rustls) and the Dart SDK version sets the cipher list. dart:io's HttpClient (also package:http and dio, which wrap it) is HTTP/1.1, so it offers no ALPN. These two exact JA4s are dart:io; the wider ja4_b 5b57614c22b0 cluster also carries h2/http1.1 variants — Flutter apps using an h2-capable client — not yet pinned to an exact build.",
+  "t13d171000_5b57614c22b0_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.5–3.12, BoringSSL (bundled) — same on any base image; no ALPN" },
+  "t13d181000_e8a523a41297_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.3, BoringSSL (bundled) — older cipher set; no ALPN" },
 
   "_browsers": "Keys below are BARE ja4_b cipher-list hashes (12 hex, no ja4_a, no underscore): a browser's cipher list is its most stable signature — the same across the extension permutations and minor versions that shift ja4_a and ja4_c. Chrome offering 15/16/17/18 extensions shares one ja4_b but has different ja4_a, so an a_b prefix catches only one; the bare ja4_b catches all. BUT the cipher list alone is not proof — impersonation tools (curl-impersonate, uTLS) and some libraries copy Chrome's ciphers without its ALPN — so known_client() applies a bare-ja4_b match ONLY when the fingerprint's full ALPN is a browser's (h2, http/1.1, optionally behind h3). A Chrome cipher list offering only http/1.1, only h2, or no ALPN is NOT matched. Keyed only for cipher lists distinctive to a single client — never a library.",
   "8daaf6152771": { "name": "Google Chrome / Chromium", "env": "Chromium cipher-suite signature — Chrome, Edge, Brave, Opera; any extension permutation or version" },

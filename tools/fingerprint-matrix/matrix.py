@@ -67,6 +67,14 @@ _RS_TAIL = (
     'print!("{}\\t{}",t["ja4"].as_str().unwrap(),t["ja3_hash"].as_str().unwrap());}'
 )
 
+# PHP has json_decode built in, so only the fetch line differs (ext-curl vs the
+# native stream wrapper). chr(9) is TAB, spelled to avoid escaping.
+_PHP_TAIL = '$t=$r["tls"];fwrite(STDOUT,$t["ja4"].chr(9).$t["ja3_hash"]);'
+# The official php:*-cli images ship ext-curl, so this is a no-op there; it only
+# compiles the extension in on an image that somehow lacks it, and never fails
+# the run (the stream client needs no curl).
+_PHP_ENSURE_CURL = "php -m | grep -qi '^curl$' || docker-php-ext-install curl >/dev/null 2>&1 || true"
+
 CLIENTS: dict[str, dict] = {
     # ── Python ──
     "py urllib (stdlib)": {"lang": "python", "pkg": None,
@@ -196,6 +204,27 @@ func main(){
         "pkg": 'ureq = "2"',
         "code": ('fn main(){let b=ureq::get("URL").call().unwrap().into_string().unwrap();'
                  + _RS_TAIL).replace("URL", URL)},
+
+    # ── PHP ──  driven through the OS OpenSSL, so ext-curl shifts by base image.
+    # Two TLS paths: ext-curl (libcurl — the default handler behind Guzzle and
+    # Symfony HttpClient) offers h2; the native stream wrapper offers no ALPN and
+    # a much wider cipher list. `pkg` is None — ext-curl is ensured by the env.
+    "php ext-curl (Guzzle/Symfony default)": {"lang": "php", "pkg": None,
+        "code": ('<?php $ch=curl_init("URL");curl_setopt($ch,CURLOPT_RETURNTRANSFER,true);'
+                 '$r=json_decode(curl_exec($ch),true);' + _PHP_TAIL).replace("URL", URL)},
+    "php streams (file_get_contents)": {"lang": "php", "pkg": None,
+        "code": ('<?php $r=json_decode(file_get_contents("URL"),true);'
+                 + _PHP_TAIL).replace("URL", URL)},
+
+    # ── Dart ──  Dart/Flutter bundle BoringSSL statically, so the base image is
+    # irrelevant (like Go and rustls) and the SDK version sets the cipher list.
+    # dart:io's HttpClient is HTTP/1.1, so no ALPN; package:http and dio wrap it.
+    "dart dart:io HttpClient (package:http/dio)": {"lang": "dart", "pkg": None,
+        "code": ('import "dart:io";import "dart:convert";void main() async{'
+                 'var c=HttpClient();var q=await c.getUrl(Uri.parse("URL"));'
+                 'var r=await q.close();var b=await r.transform(utf8.decoder).join();'
+                 'var d=jsonDecode(b);var t=d["tls"];'
+                 'stdout.write(t["ja4"]+String.fromCharCode(9)+t["ja3_hash"]);}').replace("URL", URL)},
 }
 
 # Each environment: the language it provides, an optional bootstrap to install
@@ -274,6 +303,23 @@ ENVIRONMENTS: dict[str, dict] = {
                    "printf '[package]\\nname=\"probe\"\\nversion=\"0.0.0\"\\nedition=\"2021\"\\n"
                    "[dependencies]\\n%s\\nserde_json=\"1\"\\n' '{pkg}' > /app/Cargo.toml",
         "prog": "/app/src/main.rs", "run": "cd /app && cargo run -q"},
+
+    # PHP: single-file `php /p.php`. The official cli images ship ext-curl
+    # enabled; the bootstrap only compiles it in on the rare image that lacks it,
+    # and is a no-op otherwise. PHP drives the OS OpenSSL, so ext-curl differs
+    # Debian vs Alpine while the stream wrapper holds.
+    "php:8.1-cli": {"lang": "php", "bootstrap": _PHP_ENSURE_CURL, "prog": "/p.php", "run": "php /p.php"},
+    "php:8.2-cli": {"lang": "php", "bootstrap": _PHP_ENSURE_CURL, "prog": "/p.php", "run": "php /p.php"},
+    "php:8.3-cli": {"lang": "php", "bootstrap": _PHP_ENSURE_CURL, "prog": "/p.php", "run": "php /p.php"},
+    "php:8.4-cli": {"lang": "php", "bootstrap": _PHP_ENSURE_CURL, "prog": "/p.php", "run": "php /p.php"},
+    "php:8.3-alpine": {"lang": "php", "bootstrap": _PHP_ENSURE_CURL, "prog": "/p.php", "run": "php /p.php"},
+
+    # Dart: `dart run` a single file; dart:io/dart:convert are core, no pub get.
+    # BoringSSL is bundled, so there is no base-image axis (and no official Alpine
+    # image) — the SDK version is the only variable.
+    "dart:3.3": {"lang": "dart", "prog": "/tmp/p.dart", "run": "dart run /tmp/p.dart"},
+    "dart:3.5": {"lang": "dart", "prog": "/tmp/p.dart", "run": "dart run /tmp/p.dart"},
+    "dart:stable": {"lang": "dart", "prog": "/tmp/p.dart", "run": "dart run /tmp/p.dart"},
 }
 
 STARTER = {
@@ -302,9 +348,17 @@ STARTER = {
         "clients": ["rust reqwest (native-tls)", "rust reqwest (rustls)", "rust ureq (rustls)"],
         "images": ["rust:1-slim", "rust:1-alpine"],
     },
+    "php": {
+        "clients": ["php ext-curl (Guzzle/Symfony default)", "php streams (file_get_contents)"],
+        "images": ["php:8.1-cli", "php:8.3-cli", "php:8.3-alpine"],
+    },
+    "dart": {
+        "clients": ["dart dart:io HttpClient (package:http/dio)"],
+        "images": ["dart:3.3", "dart:stable"],
+    },
 }
 
-LANGS = ["python", "node", "go", "java", "dotnet", "rust"]
+LANGS = ["python", "node", "go", "java", "dotnet", "rust", "php", "dart"]
 
 
 def run_cell(client: str, image: str, timeout: int) -> dict:
@@ -346,7 +400,22 @@ def run_cell(client: str, image: str, timeout: int) -> dict:
         reason = (proc.stderr.strip().splitlines() or ["failed"])[-1][:80]
         return {"client": client, "image": image, "error": reason}
     ja4, ja3 = out.split("\t", 1)
-    return {"client": client, "image": image, "ja4": ja4.strip(), "ja3": ja3.strip()}
+    return {"client": client, "image": image, "ja4": _normalize_ja4(ja4.strip()), "ja3": ja3.strip()}
+
+
+def _normalize_ja4(ja4: str) -> str:
+    """Match this project's engine (and the corpus), which follows the JA4 spec.
+
+    When a client offers no ALPN, tls.peet.ws renders ja4_a as 8 characters,
+    omitting the ALPN field; the spec (and our engine) append "00". Without this,
+    every no-ALPN client's JA4 would fail to match the corpus it's meant to name.
+    ja4_a is t + version(2) + d/i + ciphers(2) + extensions(2) [+ alpn(2)], so an
+    8-char first segment is exactly the no-ALPN case.
+    """
+    a, sep, rest = ja4.partition("_")
+    if sep and len(a) == 8:
+        a += "00"
+    return a + sep + rest
 
 
 def main() -> None:
