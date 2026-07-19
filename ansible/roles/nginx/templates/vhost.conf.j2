@@ -39,9 +39,19 @@ server {
 }
 
 server {
+{#
+  `http2 on;` is nginx >= 1.25.1. Ubuntu 24.04 ships 1.24, where HTTP/2 is a
+  listen parameter instead and the standalone directive is a fatal unknown
+  directive. Pick by the version actually installed.
+#}
+{% if _tlsrep_nginx_version is version('1.25.1', '>=') %}
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
+{% else %}
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+{% endif %}
     server_name {{ tlsrep_certbot_domains | join(' ') }};
 
     ssl_certificate     {{ tlsrep_cert_dir }}/fullchain.pem;

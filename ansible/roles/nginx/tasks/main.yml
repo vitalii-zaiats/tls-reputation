@@ -7,6 +7,18 @@
     state: present
   tags: [setup]
 
+- name: Detect the installed nginx version
+  ansible.builtin.command: nginx -v
+  register: _tlsrep_nginx_v
+  changed_when: false
+  check_mode: false
+  tags: [config, tls]
+
+- name: Record the nginx version
+  ansible.builtin.set_fact:
+    _tlsrep_nginx_version: "{{ _tlsrep_nginx_v.stderr | regex_search('nginx/([0-9.]+)', '\\1') | first }}"
+  tags: [config, tls]
+
 - name: Remove the default nginx site
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
@@ -21,7 +33,6 @@
     owner: root
     group: root
     mode: "0644"
-    validate: nginx -t -c /etc/nginx/nginx.conf
   notify: Reload nginx
   tags: [config]
 
@@ -44,6 +55,7 @@
     port: "{{ item }}"
     proto: tcp
   loop: ["80", "443"]
+  when: tlsrep_manage_firewall | bool
   tags: [setup, firewall]
 
 # --------------------------------------------------------------------------
@@ -91,6 +103,11 @@
     state: started
   tags: [setup]
 
+- name: Validate the assembled nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  tags: [config]
+
 # nginx must be serving the ACME path before certbot runs, so flush the
 # pending reload rather than waiting for the end of the play.
 - name: Apply the pending nginx reload
@@ -131,7 +148,6 @@
     owner: root
     group: root
     mode: "0644"
-    validate: "nginx -t -c /etc/nginx/nginx.conf"
   vars:
     _tlsrep_vhost_tls: true
   when:
@@ -149,9 +165,11 @@
 - name: Install the certbot nginx reload hook
   ansible.builtin.copy:
     dest: /etc/letsencrypt/renewal-hooks/deploy/10-reload-nginx.sh
+    # `ansible_managed` is a template-only variable; inside copy's `content` it
+    # is just an undefined name, so the marker is written out literally.
     content: |
       #!/bin/sh
-      # {{ ansible_managed }}
+      # Ansible managed: roles/nginx/tasks/main.yml
       # Reload nginx so a renewed certificate takes effect without a restart.
       systemctl reload nginx
     owner: root

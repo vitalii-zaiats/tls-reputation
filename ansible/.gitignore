@@ -10,3 +10,8 @@ inventory/group_vars/*/vault.yml
 # Runtime artefacts
 .facts_cache/
 *.retry
+
+# Host-specific configuration names real servers and describes what else runs
+# on them. This repository is public.
+inventory/host_vars/
+!inventory/host_vars/*.example.yml

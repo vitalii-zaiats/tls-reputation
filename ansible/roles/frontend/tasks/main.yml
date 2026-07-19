@@ -53,7 +53,9 @@
     # (NET_BIND_SERVICE) and drops workers to the `nginx` user (SETUID/SETGID,
     # and CHOWN for the tmpfs cache dirs). Everything else goes.
     cap_drop: [ALL]
-    cap_add:
+    # community.docker calls this `capabilities`; `cap_add` is the docker CLI
+    # spelling and the module rejects it outright.
+    capabilities:
       - NET_BIND_SERVICE
       - SETUID
       - SETGID

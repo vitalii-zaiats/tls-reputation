@@ -22,3 +22,12 @@ tlsrep_deploy_authorized_keys: []
 # Automatic security updates. Reboots are NOT automatic -- the proxies hold
 # long-lived connections and the app host should be rebooted deliberately.
 tlsrep_unattended_reboot: false
+
+# Whether this project owns the host firewall.
+#
+# true  — UFW is installed, default-deny inbound, and each role opens the
+#         ports it needs. Correct for a dedicated host.
+# false — UFW is not touched at all. Use this on a host that already runs
+#         something else: a default-deny policy would silently cut off every
+#         port this project does not know about.
+tlsrep_manage_firewall: true

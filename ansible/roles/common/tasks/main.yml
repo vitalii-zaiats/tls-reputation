@@ -112,18 +112,25 @@
 # UFW baseline: deny inbound, allow outbound, allow SSH. Per-service ports are
 # opened by the roles that need them (nginx opens 80/443, proxy opens its
 # listen port).
+#
+# Set tlsrep_manage_firewall: false when deploying onto a host that already
+# runs something else. Enabling a default-deny policy there would cut off
+# every port this project does not know about — which, on a shared host, is
+# every port that matters to whatever was there first.
 # --------------------------------------------------------------------------
 
 - name: Allow SSH through UFW
   community.general.ufw:
     rule: allow
     name: OpenSSH
+  when: tlsrep_manage_firewall | bool
   tags: [setup, firewall]
 
 - name: Set the UFW default outgoing policy
   community.general.ufw:
     direction: outgoing
     policy: allow
+  when: tlsrep_manage_firewall | bool
   tags: [setup, firewall]
 
 # Ordered last so SSH is already permitted when the default-deny takes effect.
@@ -132,4 +139,14 @@
     direction: incoming
     policy: deny
     state: enabled
+  when: tlsrep_manage_firewall | bool
+  tags: [setup, firewall]
+
+- name: Report that firewall management is disabled
+  ansible.builtin.debug:
+    msg: >-
+      tlsrep_manage_firewall is false, so UFW was left exactly as it is. Make
+      sure {{ 'ports 80 and 443' if 'tlsrep_frontend' in group_names or 'tlsrep_backend' in group_names else 'the collector port' }}
+      are reachable by whatever firewall this host actually uses.
+  when: not (tlsrep_manage_firewall | bool)
   tags: [setup, firewall]

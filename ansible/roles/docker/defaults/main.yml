@@ -69,3 +69,16 @@ tlsrep_docker_prune_hour: 4
 # the host (you can bind-mount / into a privileged container), so this is
 # empty by default — Ansible already becomes root and does not need it.
 tlsrep_docker_users: []
+
+# Whether this project owns /etc/docker/daemon.json.
+#
+# Writing it restarts dockerd, which restarts every container on the host --
+# including containers this project did not start. Set to false when sharing a
+# host with an existing Docker workload.
+tlsrep_manage_docker_daemon: true
+
+# Minimum engine version we will accept as "already installed". Below this the
+# role installs from the upstream apt repository; at or above it, apt is left
+# completely alone — see the comment at the top of tasks/main.yml for why that
+# matters on a host that already runs containers.
+tlsrep_docker_min_version: "24.0"

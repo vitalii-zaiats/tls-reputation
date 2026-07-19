@@ -13,6 +13,43 @@
     _tlsrep_deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
   tags: [always]
 
+# --------------------------------------------------------------------------
+# Do not touch apt if Docker is already here.
+#
+# A host that already runs containers already has a Docker apt source, quite
+# possibly added the old way with a different keyring path — and apt refuses
+# two Signed-By values for one repository, so adding ours breaks *all* apt
+# operations on the host. Worse, `apt install docker-ce` on such a host can
+# pull a newer containerd.io and restart every running container with it.
+#
+# So: detect a working Docker, and if it is new enough, leave the packaging
+# alone entirely. We only ever needed the engine to exist.
+# --------------------------------------------------------------------------
+
+- name: Check whether Docker is already installed
+  ansible.builtin.command: docker version --format '{{ "{{" }}.Server.Version{{ "}}" }}'
+  register: _tlsrep_docker_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [always]
+
+- name: Decide whether to manage Docker packaging
+  ansible.builtin.set_fact:
+    _tlsrep_install_docker: >-
+      {{ _tlsrep_docker_version.rc != 0
+         or (_tlsrep_docker_version.stdout | trim is version(tlsrep_docker_min_version, '<')) }}
+  tags: [always]
+
+- name: Report the existing Docker installation
+  ansible.builtin.debug:
+    msg: >-
+      Docker {{ _tlsrep_docker_version.stdout | trim }} is already installed
+      and satisfies the {{ tlsrep_docker_min_version }} minimum, so the apt
+      repository and engine packages are left untouched.
+  when: not _tlsrep_install_docker
+  tags: [always]
+
 # deb822_repository parses and emits .sources files with python3-debian, which
 # noble does not install by default.
 - name: Install the apt repository prerequisites
@@ -21,6 +58,7 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  when: _tlsrep_install_docker
   tags: [setup]
 
 - name: Create the apt keyring directory
@@ -30,6 +68,7 @@
     owner: root
     group: root
     mode: "0755"
+  when: _tlsrep_install_docker
   tags: [setup]
 
 - name: Install the Docker apt signing key
@@ -40,6 +79,7 @@
     group: root
     # 0644, not 0600: apt drops privileges to _apt before reading it.
     mode: "0644"
+  when: _tlsrep_install_docker
   tags: [setup]
 
 - name: Add the Docker apt repository
@@ -57,13 +97,26 @@
     enabled: true
     state: present
   register: _tlsrep_docker_repo
+  when: _tlsrep_install_docker
   tags: [setup]
 
 - name: Install Docker Engine
   ansible.builtin.apt:
-    name: "{{ tlsrep_docker_packages + tlsrep_docker_python_packages }}"
+    name: "{{ tlsrep_docker_packages }}"
     state: present
     update_cache: "{{ _tlsrep_docker_repo is changed }}"
+  when: _tlsrep_install_docker
+  tags: [setup]
+
+# Ungated: this comes from Ubuntu's own archive, not the Docker repository, and
+# community.docker's modules need it on the target whether or not we were the
+# ones who installed the engine.
+- name: Install the Python requirements for the Docker modules
+  ansible.builtin.apt:
+    name: "{{ tlsrep_docker_python_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
   tags: [setup]
 
 # --------------------------------------------------------------------------
@@ -81,7 +134,24 @@
     # A malformed daemon.json makes dockerd refuse to start, which on a host
     # whose entire workload is containers is a total outage. Parse it here.
     validate: "python3 -c \"import json,sys; json.load(open(sys.argv[1]))\" %s"
+  # Writing this restarts dockerd, which restarts every container on the host
+  # -- including ones this project did not start. Set
+  # tlsrep_manage_docker_daemon: false when sharing a host with someone
+  # else's workload; the only things lost are our log-rotation defaults and
+  # the pinned bridge subnet, both of which the existing setup presumably
+  # already has a view on.
+  when: tlsrep_manage_docker_daemon | bool
   notify: Restart docker
+  tags: [setup, config]
+
+- name: Report that daemon configuration was skipped
+  ansible.builtin.debug:
+    msg: >-
+      tlsrep_manage_docker_daemon is false, so /etc/docker/daemon.json was left
+      alone and dockerd was not restarted. Check that container logs are
+      rotated on this host -- json-file does not rotate by default, and these
+      containers run indefinitely.
+  when: not (tlsrep_manage_docker_daemon | bool)
   tags: [setup, config]
 
 - name: Ensure Docker is enabled and running

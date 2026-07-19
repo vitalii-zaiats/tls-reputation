@@ -40,7 +40,9 @@
     rule: allow
     port: "{{ tlsrep_proxy_port | string }}"
     proto: tcp
-  when: tlsrep_proxy_allowed_sources | length == 0
+  when:
+    - tlsrep_manage_firewall | bool
+    - tlsrep_proxy_allowed_sources | length == 0
   tags: [setup, firewall]
 
 - name: Allow the proxy listen port from permitted sources only
@@ -50,7 +52,9 @@
     proto: tcp
     src: "{{ item }}"
   loop: "{{ tlsrep_proxy_allowed_sources }}"
-  when: tlsrep_proxy_allowed_sources | length > 0
+  when:
+    - tlsrep_manage_firewall | bool
+    - tlsrep_proxy_allowed_sources | length > 0
   tags: [setup, firewall]
 
 - name: Warn that UFW cannot restrict a published container port
@@ -63,12 +67,19 @@
   when: tlsrep_proxy_allowed_sources | length > 0
   tags: [setup, firewall]
 
+# Only correct on a dedicated exit node. When the collector shares a host with
+# the site, nginx needs 80/443 and this rule would take the site down -- so it
+# is skipped whenever this host is also a frontend or backend.
 - name: Deny inbound web ports
   community.general.ufw:
     rule: deny
     port: "{{ item }}"
     proto: tcp
   loop: ["80", "443"]
+  when:
+    - tlsrep_manage_firewall | bool
+    - "'tlsrep_frontend' not in group_names"
+    - "'tlsrep_backend' not in group_names"
   tags: [setup, firewall]
 
 # --------------------------------------------------------------------------

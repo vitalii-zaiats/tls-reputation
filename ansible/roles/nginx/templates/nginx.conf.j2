@@ -10,7 +10,10 @@ client_body_timeout 15s;
 client_header_timeout 15s;
 
 # --- gzip -----------------------------------------------------------------
-gzip on;
+# `gzip on;` is deliberately absent: Debian/Ubuntu's stock nginx.conf already
+# sets it in the same http block, and nginx treats a repeat in one context as
+# a fatal "directive is duplicate". The tuning directives below are commented
+# out in the stock file, so they are ours to set.
 gzip_vary on;
 gzip_proxied any;
 gzip_comp_level 6;
