@@ -353,7 +353,13 @@ async def list_fingerprints(
     if alpn is not None:
         # Present-but-empty ("?alpn=") selects the no-ALPN population; a
         # non-empty value is split on comma into the offer list, order kept.
-        alpn_filter = [p for p in alpn.split(",") if p] if alpn else []
+        # Whitespace is stripped because the human-readable label from
+        # /api/v1/alpn joins with ", " (comma-space), and that label is exactly
+        # what the browse UI sends back as the filter — without the strip, the
+        # " http/1.1" element would never match the stored "http/1.1".
+        alpn_filter = (
+            [p.strip() for p in alpn.split(",") if p.strip()] if alpn else []
+        )
 
     rows, total = await db.list_fingerprints(sort, limit, offset, alpn_filter)
     return {"items": [_summary(r) for r in rows], "total": total}
