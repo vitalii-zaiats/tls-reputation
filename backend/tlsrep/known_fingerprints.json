@@ -3,7 +3,7 @@
 
   "t13d3013h1_1d37bd780c83_8537cf56674e": { "name": "Python requests", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
   "t13d3013h1_1d37bd780c83_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
-  "t13d301300_1d37bd780c83_5ae85263eb3b":   { "name": "Python urllib (stdlib)", "env": "Python 3.9, Debian (OpenSSL 1.1.1)" },
+  "t13d301300_1d37bd780c83_5ae85263eb3b":   { "name": "Python urllib / Ruby net/http (stdlib)", "env": "OpenSSL stdlib defaults, no ALPN — Python urllib and Ruby's Net::HTTP collapse to one JA4" },
 
   "t13d1713h1_ab0a1bf427ad_8537cf56674e": { "name": "Python requests", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
   "t13d1713h1_ab0a1bf427ad_ecd0401ec68b": { "name": "Python httpx / aiohttp", "env": "Python 3.11–3.13, Debian (OpenSSL 3)" },
@@ -57,13 +57,24 @@
   "t13d301100_1d37bd780c83_8e6e362c5eac":   { "name": "Rust reqwest (native-tls)", "env": "native-tls, Alpine (musl, OpenSSL 3) — base-dependent" },
 
   "_php": "PHP drives TLS through the OS OpenSSL on Linux, so ext-curl shifts by base image (Debian vs Alpine/musl), like Python and .NET. Two distinct TLS paths: ext-curl (libcurl — the default handler under Guzzle and Symfony HttpClient) offers h2 and a 30-cipher list; the native stream wrapper (file_get_contents / stream_socket_client) offers no ALPN and a wide 68-cipher list and is stable across PHP 8.1-8.4 and base image.",
-  "t13d3013h2_1d37bd780c83_8537cf56674e": { "name": "PHP ext-curl (Guzzle / Symfony default)", "env": "PHP 8.1-8.4, Debian (libcurl, OpenSSL 3)" },
-  "t13d3012h2_1d37bd780c83_882d495ac381": { "name": "PHP ext-curl (Guzzle / Symfony default)", "env": "PHP 8.1-8.4, Alpine (musl, libcurl, OpenSSL 3)" },
+  "t13d3013h2_1d37bd780c83_8537cf56674e": { "name": "curl / libcurl (curl, PHP ext-curl, Guzzle)", "env": "libcurl + OpenSSL 3, Debian-family build; h2" },
+  "t13d3012h2_1d37bd780c83_882d495ac381": { "name": "curl / libcurl (curl, PHP ext-curl, Guzzle)", "env": "libcurl + OpenSSL 3, Alpine (musl); h2" },
   "t13d681100_13e0e9e1c501_8e6e362c5eac":   { "name": "PHP streams (file_get_contents)", "env": "PHP 8.1-8.4, OpenSSL 3.5 — same on Debian & Alpine; no ALPN, wide cipher list" },
 
   "_dart": "Dart/Flutter bundle BoringSSL statically, so the base image is irrelevant (like Go and rustls) and the Dart SDK version sets the cipher list. dart:io's HttpClient (also package:http and dio, which wrap it) is HTTP/1.1, so it offers no ALPN. These two exact JA4s are dart:io; the wider ja4_b 5b57614c22b0 cluster also carries h2/http1.1 variants — Flutter apps using an h2-capable client — not yet pinned to an exact build.",
   "t13d171000_5b57614c22b0_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.5–3.12, BoringSSL (bundled) — same on any base image; no ALPN" },
   "t13d181000_e8a523a41297_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.3, BoringSSL (bundled) — older cipher set; no ALPN" },
+
+  "_curl": "curl / libcurl is not one fingerprint: it is the OS OpenSSL's cipher list (so it shifts by distro and OpenSSL version) plus curl's own extensions, and it offers h2 by default (h1 with --http1.1). These name curl across the major distro families — the same libcurl builds sit behind PHP's ext-curl, Guzzle and Symfony HttpClient. RedHat's system crypto-policy gives Fedora/RHEL a cipher list of their own, shared with Amazon Linux 2023. In the wild the exact JA4 varies by patch build, so these match by full JA4, not the whole ja4_b family.",
+  "t13d3112h2_e8f1e7e78f70_375ca2c5e164": { "name": "curl / libcurl", "env": "Debian 12, libcurl + OpenSSL 3; h2" },
+  "t13d3113h2_e8f1e7e78f70_db572f7c111e": { "name": "curl / libcurl", "env": "Debian 11, libcurl + OpenSSL 1.1.1; h2" },
+  "t13d3513h2_bfa337485184_8d7351bd871b": { "name": "curl / libcurl", "env": "Fedora — RedHat crypto-policy (OpenSSL 3); shares the cipher list with Amazon Linux 2023; h2" },
+  "t13d3515h2_bfa337485184_536e2dcca652": { "name": "curl / libcurl", "env": "RHEL 9 / UBI 9 — RedHat crypto-policy (OpenSSL 3); h2" },
+  "t13d3613h2_018971650b2c_683d7e382763": { "name": "curl / libcurl", "env": "RHEL 8 / UBI 8 — RedHat crypto-policy (OpenSSL 1.1.1); h2" },
+
+  "_scripting": "Other stdlib scripting clients. GNU wget links GnuTLS on Debian, not OpenSSL, so its cipher list (ja4_b 723694b0fccc) is unlike every OpenSSL client here. Perl's HTTP::Tiny / LWP go through IO::Socket::SSL over OpenSSL. Both are HTTP/1.1, no ALPN.",
+  "t13d291300_723694b0fccc_148158566ece": { "name": "wget (GNU, GnuTLS)", "env": "Debian — GnuTLS, not OpenSSL; no ALPN" },
+  "t13d301300_1d37bd780c83_d2ecb6802617": { "name": "Perl HTTP::Tiny / LWP", "env": "OpenSSL via IO::Socket::SSL; no ALPN" },
 
   "_browsers": "Keys below are BARE ja4_b cipher-list hashes (12 hex, no ja4_a, no underscore): a browser's cipher list is its most stable signature — the same across the extension permutations and minor versions that shift ja4_a and ja4_c. Chrome offering 15/16/17/18 extensions shares one ja4_b but has different ja4_a, so an a_b prefix catches only one; the bare ja4_b catches all. BUT the cipher list alone is not proof — impersonation tools (curl-impersonate, uTLS) and some libraries copy Chrome's ciphers without its ALPN — so known_client() applies a bare-ja4_b match ONLY when the fingerprint's full ALPN is a browser's (h2, http/1.1, optionally behind h3). A Chrome cipher list offering only http/1.1, only h2, or no ALPN is NOT matched. Keyed only for cipher lists distinctive to a single client — never a library.",
   "8daaf6152771": { "name": "Google Chrome / Chromium", "env": "Chromium cipher-suite signature — Chrome, Edge, Brave, Opera; any extension permutation or version" },
