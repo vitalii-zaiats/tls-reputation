@@ -46,12 +46,15 @@ tlsrep_docker_live_restore: true
 # --- registry --------------------------------------------------------------
 tlsrep_docker_registry: ghcr.io
 
-# Login is only attempted when a token is actually present. The tls-reputation
-# packages are public, so an anonymous pull works and this is optional — but it
-# must keep working the moment a package is made private, or a token is needed
-# to raise the anonymous pull rate limit.
+# Login is only attempted when a token is present, so the role stays usable if
+# the packages are ever made public. Today they are private — GHCR publishes
+# every new package private whatever the repository's visibility — so a
+# read:packages token is required in practice.
+#
+# Prefer $GHCR_TOKEN over -e: extra-vars land in ansible's argv, which any
+# local user can read out of `ps` while the play runs.
 tlsrep_ghcr_username: "{{ tlsrep_image_owner | default('') }}"
-tlsrep_ghcr_token: "{{ vault_ghcr_token | default('') }}"
+tlsrep_ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') or vault_ghcr_token | default('') }}"
 
 # --- housekeeping ----------------------------------------------------------
 # Pull-based deploys accumulate images: every tag ever deployed stays on disk

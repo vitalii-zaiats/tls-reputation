@@ -37,11 +37,18 @@ tlsrep_image_mutable_tags:
   - nightly
 tlsrep_image_pull: "{{ 'always' if tlsrep_image_tag in tlsrep_image_mutable_tags else 'missing' }}"
 
-# GHCR login. The packages are public, so this is optional — set
-# vault_ghcr_token in a vault only when you make them private, or when you want
-# the higher authenticated pull rate limit. See roles/docker/tasks/main.yml.
+# GHCR login. The packages are PRIVATE (GHCR publishes every new package
+# private regardless of the repository's visibility), so a token with
+# read:packages is required — without one the pull fails with "denied".
+#
+# Resolved in precedence order:
+#   1. -e tlsrep_ghcr_token=...   explicit on the command line
+#   2. $GHCR_TOKEN                the usual way; keeps the secret out of shell
+#                                 history and out of ansible's argv, which is
+#                                 readable via `ps` on the control machine
+#   3. vault_ghcr_token           if you would rather keep it in a vault
 tlsrep_ghcr_username: "{{ tlsrep_image_owner }}"
-tlsrep_ghcr_token: "{{ vault_ghcr_token | default('') }}"
+tlsrep_ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') or vault_ghcr_token | default('') }}"
 
 # ---------------------------------------------------------------------------
 # Hosts

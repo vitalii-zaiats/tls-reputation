@@ -109,13 +109,14 @@
 # --------------------------------------------------------------------------
 # Registry authentication.
 #
-# The tls-reputation packages on GHCR are public, so an anonymous pull works
-# and this step is optional — which is exactly why it is conditional rather
-# than required. Define `vault_ghcr_token` in a group vault and login starts
-# happening; leave it out and deploys still work against public packages.
+# Conditional on a token being resolved, so the role keeps working if the
+# packages are ever made public — but in practice a token is needed. GHCR
+# publishes every new package as private regardless of the repository's
+# visibility, so unless all three have been explicitly flipped to public, an
+# anonymous pull returns "denied" — which names neither the package nor
+# authentication, and is a confusing way to find this out.
 #
-# Make a package private and the token stops being optional: without it the
-# pull fails with "denied", not with anything that names authentication.
+# See group_vars/all/main.yml for how the token is resolved.
 # --------------------------------------------------------------------------
 
 - name: Authenticate to the container registry
@@ -132,13 +133,15 @@
   no_log: true
   tags: [setup, deploy]
 
-- name: Report that registry authentication was skipped
+- name: Warn that no registry credentials were supplied
   ansible.builtin.debug:
     msg: >-
-      No vault_ghcr_token defined, so no docker login was performed. This is
-      fine while the {{ tlsrep_docker_registry }} packages are public. If a
-      pull fails with "denied" or "unauthorized", set vault_ghcr_token to a
-      GitHub PAT with read:packages — see ansible/README.md.
+      No registry token found, so no docker login was performed. The
+      {{ tlsrep_docker_registry }} packages are currently PRIVATE, so the
+      image pull below will fail with "denied" unless you have since made
+      them public. Supply a GitHub PAT with read:packages via
+      GHCR_TOKEN=... in the environment (preferred), -e tlsrep_ghcr_token=...,
+      or vault_ghcr_token in a vault. See ansible/README.md.
   when: tlsrep_ghcr_token | default('') | length == 0
   tags: [setup, deploy]
 

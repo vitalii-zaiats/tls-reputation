@@ -14,21 +14,31 @@
 # ---------------------------------------------------------------------------
 # GHCR (GitHub Container Registry) token.
 #
-# THIS FILE IS OPTIONAL. The tls-reputation packages are public, so the
-# servers can pull them anonymously and no login is needed. Every role treats
-# the token as optional (`vault_ghcr_token | default('')`) and the docker role
-# skips `docker_login` entirely when it is empty.
+# A token IS required. GHCR publishes every new package as private regardless
+# of the repository's visibility, so the three tls-reputation images are
+# private and an anonymous pull returns "denied".
 #
-# You need it when:
-#   - you make any of the three packages private, or
-#   - anonymous pull rate limits start biting.
+# THIS FILE IS THE FALLBACK, not the usual path. The token is resolved as:
 #
-# Create one at https://github.com/settings/tokens (classic) with scope:
+#   1. -e tlsrep_ghcr_token=...
+#   2. $GHCR_TOKEN            <-- preferred
+#   3. vault_ghcr_token       <-- this file
+#
+# Prefer the environment variable. Extra-vars passed with -e appear in
+# ansible's argv, which any local user can read out of `ps` while the play
+# runs, and in your shell history afterwards:
+#
+#   GHCR_TOKEN=ghp_... ansible-playbook site.yml --ask-vault-pass
+#
+# Create the token at https://github.com/settings/tokens (classic) with scope:
 #   read:packages     -- what the SERVERS need, and all they should have
-#   write:packages    -- what YOUR LAPTOP needs for `make push`; keep that
-#                        token in your local docker credential store, not here
+#   write:packages    -- what YOUR LAPTOP needs for `make push`; that one lives
+#                        in your local docker credential store, not here
 #
 # Give the servers a read-only token. A deploy never pushes.
+#
+# If you later make the packages public, the token becomes optional again --
+# the docker role skips docker_login whenever it resolves to empty.
 # ---------------------------------------------------------------------------
 
 vault_ghcr_token: "ghp_CHANGEME-read-packages-token"
