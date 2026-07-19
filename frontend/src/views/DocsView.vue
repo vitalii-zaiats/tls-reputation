@@ -131,7 +131,7 @@ curl -s "${BASE}/snis?sort=spread&limit=10"`
 
 // The embeddable graph. Same-origin, self-contained, chrome-less. Seed it with
 // ?sni= or ?ja4=; the frame reads the same corpus this site does.
-const EMBED_ORIGIN = 'https://tls-reputation.vitalii-zaiats.com'
+const EMBED_ORIGIN = 'https://tls-reputation.com'
 const embedSnippet = `<iframe
   src="${EMBED_ORIGIN}/embed?sni=www.facebook.com"
   width="100%" height="600" style="border:0"
