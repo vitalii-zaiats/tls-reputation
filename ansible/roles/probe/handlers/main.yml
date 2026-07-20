@@ -1,0 +1,5 @@
+---
+- name: Restart probe
+  community.docker.docker_container:
+    name: "{{ tlsrep_probe_container_name }}"
+    restart: true

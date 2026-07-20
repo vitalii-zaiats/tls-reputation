@@ -1,0 +1,29 @@
+---
+tlsrep_probe_container_name: tlsrep-probe
+
+tlsrep_probe_image_repo: "{{ tlsrep_image_base }}-probe"
+tlsrep_probe_image: "{{ tlsrep_probe_image_repo }}:{{ tlsrep_image_tag }}"
+
+# Its own hostname and its own certificate. Runs on an alternative port so the
+# main site's :443 (nginx) is never touched.
+tlsrep_probe_domain: "probe.{{ tlsrep_domain }}"
+tlsrep_probe_port: 8443
+tlsrep_probe_container_port: 8443
+tlsrep_probe_bind_address: "0.0.0.0"
+
+# certbot issues into live/, whose privkey is root-only (0600). A non-root
+# container cannot read it, so the leaf is copied to a directory it can, and a
+# renewal deploy-hook keeps that copy fresh.
+tlsrep_probe_le_dir: "/etc/letsencrypt/live/{{ tlsrep_probe_domain }}"
+tlsrep_probe_cert_dir: "/opt/tlsrep-probe/certs"
+tlsrep_probe_uid: 10002
+tlsrep_acme_webroot: "{{ tlsrep_acme_webroot | default('/var/www/letsencrypt') }}"
+
+# The backend's /reputation, reached over the host gateway (the API is bound to
+# 127.0.0.1 on the host, so host.docker.internal is the way in).
+tlsrep_probe_reputation_url: "http://host.docker.internal:{{ tlsrep_backend_bind_port | default(8000) }}/api/v1/reputation"
+
+tlsrep_probe_memory_max: 256M
+tlsrep_probe_pids_limit: 2048
+tlsrep_probe_nofile_limit: 65535
+tlsrep_probe_log_level: INFO

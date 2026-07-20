@@ -1,0 +1,129 @@
+---
+# --------------------------------------------------------------------------
+# Reputation probe server. Terminates TLS for probe.<domain> on an alternative
+# port, peeks each caller's ClientHello, and answers with its reputation.
+# Runs on the app host: it needs a Let's Encrypt cert and the backend nearby.
+# The host is shared and manages its own firewall, so this role opens no ports
+# -- reachability on the listen port is the provider firewall's business.
+# --------------------------------------------------------------------------
+
+- name: Assert an image tag is set
+  ansible.builtin.assert:
+    that:
+      - tlsrep_image_tag | default('') | length > 0
+    fail_msg: "tlsrep_image_tag is empty (pass -e tlsrep_image_tag=<git-sha>)."
+    quiet: true
+  run_once: true
+  tags: [always]
+
+# --- certificate ---------------------------------------------------------
+- name: Check for the probe certificate
+  ansible.builtin.stat:
+    path: "{{ tlsrep_probe_le_dir }}/fullchain.pem"
+  register: _probe_cert
+  tags: [tls]
+
+- name: Obtain the Let's Encrypt certificate for the probe domain
+  ansible.builtin.command:
+    cmd: >-
+      certbot certonly --webroot
+      --webroot-path {{ tlsrep_acme_webroot }}
+      --cert-name {{ tlsrep_probe_domain }}
+      -d {{ tlsrep_probe_domain }}
+      --email {{ tlsrep_certbot_email | default('admin@' + tlsrep_domain) }}
+      --agree-tos --non-interactive --no-eff-email --keep-until-expiring
+    creates: "{{ tlsrep_probe_le_dir }}/fullchain.pem"
+  when: not _probe_cert.stat.exists
+  tags: [tls]
+
+# --- readable copy for the non-root container ----------------------------
+- name: Create the probe cert directory
+  ansible.builtin.file:
+    path: "{{ tlsrep_probe_cert_dir }}"
+    state: directory
+    owner: "{{ tlsrep_probe_uid }}"
+    group: "{{ tlsrep_probe_uid }}"
+    mode: "0750"
+  tags: [tls]
+
+- name: Copy the leaf cert and key where the container can read them
+  ansible.builtin.copy:
+    src: "{{ tlsrep_probe_le_dir }}/{{ item.src }}"
+    dest: "{{ tlsrep_probe_cert_dir }}/{{ item.dest }}"
+    remote_src: true
+    owner: "{{ tlsrep_probe_uid }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "fullchain.pem", dest: "cert.pem", mode: "0644" }
+    - { src: "privkey.pem", dest: "key.pem", mode: "0600" }
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: Restart probe
+  tags: [tls]
+
+- name: Install the certbot deploy hook that refreshes the probe cert
+  ansible.builtin.copy:
+    dest: "/etc/letsencrypt/renewal-hooks/deploy/tlsrep-probe.sh"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Refresh the probe's readable cert copy and restart it after renewal.
+      [ "$RENEWED_LINEAGE" = "{{ tlsrep_probe_le_dir }}" ] || exit 0
+      install -o {{ tlsrep_probe_uid }} -m 0644 "{{ tlsrep_probe_le_dir }}/fullchain.pem" "{{ tlsrep_probe_cert_dir }}/cert.pem"
+      install -o {{ tlsrep_probe_uid }} -m 0600 "{{ tlsrep_probe_le_dir }}/privkey.pem"   "{{ tlsrep_probe_cert_dir }}/key.pem"
+      docker restart {{ tlsrep_probe_container_name }} >/dev/null 2>&1 || true
+  tags: [tls]
+
+# --- container -----------------------------------------------------------
+- name: Run the probe container
+  community.docker.docker_container:
+    name: "{{ tlsrep_probe_container_name }}"
+    image: "{{ tlsrep_probe_image }}"
+    pull: "{{ tlsrep_image_pull | default(true) }}"
+    state: started
+    restart_policy: unless-stopped
+
+    published_ports:
+      - "{{ tlsrep_probe_bind_address }}:{{ tlsrep_probe_port }}:{{ tlsrep_probe_container_port }}"
+
+    etc_hosts:
+      host.docker.internal: host-gateway
+
+    mounts:
+      - source: "{{ tlsrep_probe_cert_dir }}"
+        target: /certs
+        type: bind
+        read_only: true
+
+    env:
+      TLSREP_PROBE_HOST: "::"
+      TLSREP_PROBE_PORT: "{{ tlsrep_probe_container_port | string }}"
+      TLSREP_PROBE_CERT: "/certs/cert.pem"
+      TLSREP_PROBE_KEY: "/certs/key.pem"
+      TLSREP_REPUTATION_URL: "{{ tlsrep_probe_reputation_url }}"
+      TLSREP_LOG_LEVEL: "{{ tlsrep_probe_log_level }}"
+
+    # --- hardening ---
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=16m"
+    cap_drop: [ALL]
+    security_opts:
+      - "no-new-privileges:true"
+
+    # --- limits ---
+    memory: "{{ tlsrep_probe_memory_max }}"
+    memory_swap: "{{ tlsrep_probe_memory_max }}"
+    pids_limit: "{{ tlsrep_probe_pids_limit }}"
+    ulimits:
+      - "nofile:{{ tlsrep_probe_nofile_limit }}:{{ tlsrep_probe_nofile_limit }}"
+
+    log_driver: json-file
+    log_options:
+      max-size: "{{ tlsrep_docker_log_max_size | default('10m') }}"
+      max-file: "{{ tlsrep_docker_log_max_file | default(3) | string }}"
+
+    labels:
+      com.tls-reputation.component: probe
+      com.tls-reputation.tag: "{{ tlsrep_image_tag }}"
+  tags: [deploy]

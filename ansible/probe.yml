@@ -1,0 +1,18 @@
+---
+# Reputation probe server. Runs on the app host (needs a Let's Encrypt cert and
+# the backend). Listens on an alternative port; the main site's :443 is left
+# untouched.
+#
+#   ansible-playbook probe.yml -e tlsrep_image_tag=<git-sha>
+
+- name: Deploy the tls-reputation probe server
+  hosts: tlsrep_backend
+  become: true
+
+  roles:
+    - role: common
+      tags: [common, setup]
+    - role: docker
+      tags: [docker, setup]
+    - role: probe
+      tags: [probe, deploy]
