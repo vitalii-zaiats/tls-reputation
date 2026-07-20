@@ -19,9 +19,11 @@ tlsrep_probe_cert_dir: "/opt/tlsrep-probe/certs"
 tlsrep_probe_uid: 10002
 tlsrep_acme_webroot: "/var/www/letsencrypt"
 
-# The backend's /reputation, reached over the host gateway (the API is bound to
-# 127.0.0.1 on the host, so host.docker.internal is the way in).
-tlsrep_probe_reputation_url: "http://host.docker.internal:{{ tlsrep_backend_bind_port | default(8000) }}/api/v1/reputation"
+# The backend's /reputation. The API is bound to 127.0.0.1 on the host, which a
+# sibling container cannot reach over the docker bridge, so the probe goes out
+# to the public endpoint (through nginx) — one clean hop, no host-networking
+# assumptions, and the same URL any caller would use.
+tlsrep_probe_reputation_url: "https://{{ tlsrep_domain }}/api/v1/reputation"
 
 tlsrep_probe_memory_max: 256M
 tlsrep_probe_pids_limit: 2048
