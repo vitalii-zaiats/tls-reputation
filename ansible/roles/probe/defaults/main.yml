@@ -17,7 +17,7 @@ tlsrep_probe_bind_address: "0.0.0.0"
 tlsrep_probe_le_dir: "/etc/letsencrypt/live/{{ tlsrep_probe_domain }}"
 tlsrep_probe_cert_dir: "/opt/tlsrep-probe/certs"
 tlsrep_probe_uid: 10002
-tlsrep_acme_webroot: "{{ tlsrep_acme_webroot | default('/var/www/letsencrypt') }}"
+tlsrep_acme_webroot: "/var/www/letsencrypt"
 
 # The backend's /reputation, reached over the host gateway (the API is bound to
 # 127.0.0.1 on the host, so host.docker.internal is the way in).
