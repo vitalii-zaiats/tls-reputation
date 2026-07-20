@@ -63,8 +63,15 @@
   "t13d681100_13e0e9e1c501_8e6e362c5eac":   { "name": "PHP streams (file_get_contents)", "env": "PHP 8.1-8.4, OpenSSL 3.5 — same on Debian & Alpine; no ALPN, wide cipher list" },
 
   "_dart": "Dart/Flutter bundle BoringSSL statically, so the base image is irrelevant (like Go and rustls) and the Dart SDK version sets the cipher list. dart:io's HttpClient (also package:http and dio, which wrap it) is HTTP/1.1, so it offers no ALPN. These two exact JA4s are dart:io; the wider ja4_b 5b57614c22b0 cluster also carries h2/http1.1 variants — Flutter apps using an h2-capable client — not yet pinned to an exact build.",
-  "t13d171000_5b57614c22b0_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.5–3.12, BoringSSL (bundled) — same on any base image; no ALPN" },
+  "t13d171000_5b57614c22b0_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.5–3.12, BoringSSL — ja4_b 5b57614c22b0 is the mobile-BoringSSL cipher list it shares with Android Conscrypt; no ALPN" },
   "t13d181000_e8a523a41297_78e6aca7449b": { "name": "Dart dart:io HttpClient (package:http / dio)", "env": "Dart 3.3, BoringSSL (bundled) — older cipher set; no ALPN" },
+
+  "_android": "Android's system TLS is Conscrypt (Google's BoringSSL provider), so native apps — Google Play Services, Firebase, GCM, and anything on OkHttp/HttpURLConnection — share ja4_b 5b57614c22b0, the same mobile-BoringSSL cipher list Flutter/Dart carries; the ja4_c then varies by component and Android version. Android's WebView and Chrome are Chromium, so they use Chrome's ja4_b 8daaf6152771 instead. These full JA4s are ground truth from a labelled Android capture that also matches the live corpus.",
+  "t13d1712h2_5b57614c22b0_3f5d972527c0": { "name": "Android — Google Play Services (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); h2 — android.googleapis.com, digitalassetlinks" },
+  "t13d171100_5b57614c22b0_3f5d972527c0": { "name": "Android — Google Play Services (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); no ALPN — android.googleapis.com" },
+  "t13d1713h1_5b57614c22b0_eca864cca44a": { "name": "Android — Firebase / Google services (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); h1 — firebaseinstallations, clientservices" },
+  "t13d171200_5b57614c22b0_eca864cca44a": { "name": "Android — Firebase / GCM (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); no ALPN — mtalk.google.com (push)" },
+  "t13d1714h1_5b57614c22b0_7baf387fc6ff": { "name": "Android — Firebase / Play (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); h1 — firebaseremoteconfig, play.googleapis.com" },
 
   "_curl": "curl / libcurl is not one fingerprint: it is the OS OpenSSL's cipher list (so it shifts by distro and OpenSSL version) plus curl's own extensions, and it offers h2 by default (h1 with --http1.1). These name curl across the major distro families — the same libcurl builds sit behind PHP's ext-curl, Guzzle and Symfony HttpClient. RedHat's system crypto-policy gives Fedora/RHEL a cipher list of their own, shared with Amazon Linux 2023. In the wild the exact JA4 varies by patch build, so these match by full JA4, not the whole ja4_b family.",
   "t13d3112h2_e8f1e7e78f70_375ca2c5e164": { "name": "curl / libcurl", "env": "Debian 12, libcurl + OpenSSL 3; h2" },
