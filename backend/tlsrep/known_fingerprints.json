@@ -73,6 +73,10 @@
   "t13d171200_5b57614c22b0_eca864cca44a": { "name": "Android — Firebase / GCM (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); no ALPN — mtalk.google.com (push)" },
   "t13d1714h1_5b57614c22b0_7baf387fc6ff": { "name": "Android — Firebase / Play (Conscrypt)", "env": "Android system TLS (Conscrypt/BoringSSL); h1 — firebaseremoteconfig, play.googleapis.com" },
 
+  "_mobile_apps": "Mobile apps with their own TLS stack, named from the SNIs they phone home to. ByteDance's apps use 'ttnet', a deliberately minimal (9-cipher) BoringSSL config with its mssdk device-attestation — the same shape across CapCut and TikTok. Keyed on the full JA4, since the 9-cipher list is shared with a few other minimal-config clients.",
+  "t13d0913h1_f91f431d341e_7dc0f4860127": { "name": "ByteDance app (CapCut / TikTok — ttnet)", "env": "minimal-cipher mobile TLS (9 ciphers, ttnet + mssdk); capcutapi.com" },
+  "t13d0912h2_f91f431d341e_fde2939304f6": { "name": "Bilibili app", "env": "minimal-cipher mobile TLS; grpc.biliapi.net" },
+
   "_curl": "curl / libcurl is not one fingerprint: it is the OS OpenSSL's cipher list (so it shifts by distro and OpenSSL version) plus curl's own extensions, and it offers h2 by default (h1 with --http1.1). These name curl across the major distro families — the same libcurl builds sit behind PHP's ext-curl, Guzzle and Symfony HttpClient. RedHat's system crypto-policy gives Fedora/RHEL a cipher list of their own, shared with Amazon Linux 2023. In the wild the exact JA4 varies by patch build, so these match by full JA4, not the whole ja4_b family.",
   "t13d3112h2_e8f1e7e78f70_375ca2c5e164": { "name": "curl / libcurl", "env": "Debian 12, libcurl + OpenSSL 3; h2" },
   "t13d3113h2_e8f1e7e78f70_db572f7c111e": { "name": "curl / libcurl", "env": "Debian 11, libcurl + OpenSSL 1.1.1; h2" },
