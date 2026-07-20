@@ -44,8 +44,8 @@
   "_java": "Java TLS is JSSE (pure Java), so the base image is irrelevant — identical on Debian and Alpine — and the JDK major sets the fingerprint. java.net.http and Apache HttpClient5 both use the JDK's default cipher list (same ja4_b 1d947a95fc68); Apache classic offers no ALPN, so its ja4_a lacks h2. OkHttp overrides the cipher list with its own restricted set (ja4_b 5e2a75874763), so it does NOT collapse onto the JDK default.",
   "t13d3112h2_1d947a95fc68_b72e173852fa": { "name": "Java java.net.http (stdlib)", "env": "JDK 11 — pure-Java JSSE, same on any base image" },
   "t13d3113h2_1d947a95fc68_7e1102d2036b": { "name": "Java java.net.http (stdlib)", "env": "JDK 17–21 — pure-Java JSSE, same on any base image" },
-  "t13d311100_1d947a95fc68_b72e173852fa":   { "name": "Java Apache HttpClient 5", "env": "JDK 11 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
-  "t13d311200_1d947a95fc68_7e1102d2036b":   { "name": "Java Apache HttpClient 5", "env": "JDK 17–21 — JSSE ciphers, no ALPN (HTTP/1.1); same on any base image" },
+  "t13d311100_1d947a95fc68_b72e173852fa":   { "name": "Java JSSE, no ALPN (SSLSocket / Apache HttpClient5 / HttpURLConnection)", "env": "JDK 11 — bare JSSE, no ALPN; captured raw SSLSocket matches this exactly. ja4_c is java.net.http's too (JA4 excludes ALPN/SNI from ja4_c), so those differ only in ja4_a. Same on any base image." },
+  "t13d311200_1d947a95fc68_7e1102d2036b":   { "name": "Java JSSE, no ALPN (SSLSocket / Apache HttpClient5 / HttpURLConnection)", "env": "JDK 17–21 — bare JSSE, no ALPN; raw SSLSocket matches exactly. Same on any base image." },
   "t13d1113h2_5e2a75874763_a75264be95d7": { "name": "Java OkHttp", "env": "JDK 11 — OkHttp's own restricted cipher list; same on any base image" },
   "t13d1114h2_5e2a75874763_89e9e4bb3419": { "name": "Java OkHttp", "env": "JDK 17–21 — OkHttp's own restricted cipher list; same on any base image" },
 
