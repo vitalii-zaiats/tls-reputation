@@ -6,16 +6,20 @@ response identifies a person: there is no client IP in the database to leak.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 
 from .. import db
 from ..classify import sni_category
 from ..config import settings
 from ..known import known_client
+from ..tls import fingerprint
 from ..tls.names import CIPHERS, CURVES, EXTENSIONS, SIG_ALGOS, decorate
 
 router = APIRouter(prefix="/api/v1", tags=["public"])
@@ -229,6 +233,59 @@ async def get_ja4(value: str = Path(..., description="JA4 string, a_b_c")) -> di
     if row is None:
         raise HTTPException(404, "fingerprint not observed")
     return await _detail(row)
+
+
+class ClientHelloIn(BaseModel):
+    # A single TLS record maxes at 16 KiB of payload plus the 5-byte header; a
+    # base64 body a few times that is already generous and caps abuse.
+    client_hello: str = Field(
+        ..., max_length=65536, description="base64-encoded raw TLS ClientHello record"
+    )
+
+
+@router.post("/reputation", summary="Reputation for a raw ClientHello")
+async def reputation(body: ClientHelloIn) -> dict:
+    """Fingerprint a raw ClientHello with this project's own engine, then look
+    the result up in the corpus.
+
+    Unlike the /ja3 and /ja4 routes, the caller doesn't compute the fingerprint —
+    it hands over the bytes and we do, so the JA3/JA4 are guaranteed to be ours.
+    The probe server at probe.tls-reputation.com peeks a connecting client's
+    ClientHello and posts it here, but anything can: base64 a ClientHello record
+    and ask what it is and whether we've seen it.
+
+    Always returns the computed fingerprint and whether the catalog can name the
+    client. `observed` says whether this exact JA4 is in the corpus; when it is,
+    `reputation` carries the full reach (domains, spread, stability). An unseen
+    fingerprint is a legitimate answer, and a useful one: a stable client that
+    has never appeared is itself worth a second look.
+    """
+    try:
+        raw = base64.b64decode(body.client_hello, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "client_hello is not valid base64") from None
+
+    fp = fingerprint(raw)
+    if fp is None:
+        raise HTTPException(
+            422, "not a parseable TLS ClientHello (malformed, or arrived truncated)"
+        )
+
+    row = await db.fingerprint_by_ja4(fp["ja4"])
+    result = {
+        "ja4": fp["ja4"],
+        "ja3": fp["ja3"],
+        "sni": fp["sni"],
+        "tls_version": _TLS_VERSION_NAMES.get(fp["tls_version"], "unknown"),
+        "alpn": fp["alpn"],
+        # Named client build, if the ground-truth catalog recognises this JA4.
+        "known": known_client(fp["ja4"], fp["alpn"]),
+        # Is this exact JA4 in the corpus? The signal the negative-exclusion
+        # strategy leans on: a well-formed, stable fingerprint we've never seen.
+        "observed": row is not None,
+        "reputation": await _detail(row) if row is not None else None,
+    }
+    return result
 
 
 async def _sni_payload(value: str, limit: int, offset: int) -> dict | None:
