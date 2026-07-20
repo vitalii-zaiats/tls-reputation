@@ -35,8 +35,19 @@ WHERE EXISTS (
         WHERE o.fingerprint_id = f.id AND o.sni <> :'sni'
       );
 
--- The target had only those fingerprints, so its aggregate row is now stale
--- and empty — drop it if nothing reaches it any more.
+-- The target's aggregate is now stale. It may still be reached by real,
+-- multi-domain clients (a genuine browser that also visited it survives the
+-- delete above), so rebuild its counts from the survivors...
+UPDATE snis s
+SET observations        = a.obs,
+    unique_fingerprints  = a.uf
+FROM (
+  SELECT sum(count) AS obs, count(DISTINCT fingerprint_id) AS uf
+  FROM observations WHERE sni = :'sni'
+) a
+WHERE s.sni = :'sni' AND a.uf > 0;
+
+-- ...and drop it entirely only if nothing reaches it any more.
 DELETE FROM snis
 WHERE sni = :'sni'
   AND sni NOT IN (SELECT sni FROM observations);
