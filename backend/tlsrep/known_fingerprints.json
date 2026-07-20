@@ -27,6 +27,7 @@
   "t13d1812h1_85036bcba153_375ca2c5e164": { "name": "Python requests", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
   "t13d1812h1_85036bcba153_1f22a2ca17c4": { "name": "Python httpx / aiohttp", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
   "t13d1813h1_85036bcba153_fb8d5ffd48c1": { "name": "Python urllib (stdlib)", "env": "Python 3.12 via uv, Debian (OpenSSL 3)" },
+  "t13d1812h1_85036bcba153_b26ce05bbdd6": { "name": "Python requests / urllib3", "env": "Python 3.14, Windows 10 — python.org build; ja4_b 85036bcba153 is the official CPython OpenSSL 3.0.x cipher list (same on uv & macOS), the OS shifts ja4_c" },
 
   "t13d591000_a33745022dd6_1f22a2ca17c4":   { "name": "Node.js https / axios / got (no ALPN)", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
   "t13d5911h1_a33745022dd6_1f22a2ca17c4": { "name": "Node.js fetch / undici", "env": "Node 18–20 — bundled OpenSSL 3 (same on Debian & Alpine)" },
