@@ -43,6 +43,10 @@ _PORT_COUNT = int(os.getenv("STUNPROBE_PORT_COUNT", "200"))
 _STUN_HOST = os.getenv("STUNPROBE_STUN_HOST", "")
 _TTL = float(os.getenv("STUNPROBE_TTL", "8"))
 _BIND = os.getenv("STUNPROBE_UDP_BIND", "0.0.0.0")
+# Comma-separated origin allowlist; "*" (default) accepts any origin.
+_CORS_ORIGINS = [
+    o.strip() for o in os.getenv("STUNPROBE_CORS_ORIGINS", "*").split(",") if o.strip()
+] or ["*"]
 
 
 class Session:
@@ -157,9 +161,25 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="tls-reputation WebRTC probe", lifespan=_lifespan)
-app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+
+# The probe is always called cross-origin from the page under test, so the
+# preflight for POST /init and POST /request/{id}/consume must succeed — including
+# when the caller sends credentials (a session cookie in the attestation flow).
+# A literal "*" origin cannot carry credentials: browsers reject
+# `Access-Control-Allow-Origin: *` on a credentialed request. So for the open
+# default we match any origin with a regex, which makes Starlette echo the
+# caller's Origin and emit `Access-Control-Allow-Credentials`. Set
+# STUNPROBE_CORS_ORIGINS to a comma-separated allowlist to lock it down.
+_cors = dict(
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+    max_age=600,
 )
+if _CORS_ORIGINS == ["*"]:
+    app.add_middleware(CORSMiddleware, allow_origin_regex=".*", **_cors)
+else:
+    app.add_middleware(CORSMiddleware, allow_origins=_CORS_ORIGINS, **_cors)
 
 
 @app.get("/healthz")
