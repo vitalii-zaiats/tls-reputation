@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
 import secrets
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from .stun import build_binding_response, is_binding_request, transaction_id
 
@@ -47,6 +49,10 @@ _BIND = os.getenv("STUNPROBE_UDP_BIND", "0.0.0.0")
 _CORS_ORIGINS = [
     o.strip() for o in os.getenv("STUNPROBE_CORS_ORIGINS", "*").split(",") if o.strip()
 ] or ["*"]
+
+# The embeddable widget — a "Run the probe" button + result. Served from this
+# same origin so its fetch() to /init and /consume needs no CORS at all.
+_WIDGET_HTML = pathlib.Path(__file__).with_name("widget.html").read_text(encoding="utf-8")
 
 
 class Session:
@@ -185,6 +191,16 @@ else:
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"ok": True}
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/embed", response_class=HTMLResponse, include_in_schema=False)
+async def widget() -> HTMLResponse:
+    # `frame-ancestors *` so any blog can embed this in an <iframe>. (nginx must
+    # not add X-Frame-Options for this vhost, or it would override this.)
+    return HTMLResponse(
+        _WIDGET_HTML, headers={"Content-Security-Policy": "frame-ancestors *"}
+    )
 
 
 @app.post("/init", summary="Allocate a probe session + STUN port")

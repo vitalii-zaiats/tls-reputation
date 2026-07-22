@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebRTC forgery probe</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --ink:#16181d; --body:#454b54; --muted:#8b9099; --faint:#aeb4bc;
+    --amber:#c8791a; --amber-soft:#e0a03a; --line:#e8eaee; --surface:#f6f7f9;
+    --green:#0f6d43; --green-bg:#eef7f1; --green-line:#d3e7db;
+    --red:#bf2429; --red-bg:#fdeaea; --red-line:#f2caca;
+    --amberv:#a86a12; --amber-bg:#fdf4e6; --amber-lin:#efdfc0;
+    --grey:#5f666e; --grey-bg:#f2f3f5; --grey-line:#e4e6ea;
+  }
+  html,body { background:transparent; }
+  body { font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; color:var(--ink); padding:14px; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+
+  .probe { max-width:620px; margin:0 auto; background:#fff; border:1px solid var(--line);
+    border-radius:18px; padding:30px 32px 26px; position:relative; overflow:hidden; }
+  .probe::before { content:""; position:absolute; inset:0 auto auto 0; width:100%; height:120px;
+    background:radial-gradient(120% 150% at 88% -30%, rgba(224,160,58,.16), transparent 60%);
+    pointer-events:none; }
+
+  .eyebrow { font-size:11.5px; font-weight:800; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--amber); display:flex; align-items:center; gap:8px; }
+  .eyebrow .dot { width:7px; height:7px; border-radius:50%; background:var(--amber-soft); }
+  h2 { margin-top:11px; font-size:24px; line-height:1.2; letter-spacing:-.02em; font-weight:800; }
+  .lede { margin-top:9px; font-size:14.5px; line-height:1.5; color:var(--body); max-width:52ch; }
+
+  .btn { margin-top:20px; display:inline-flex; align-items:center; gap:10px; font:inherit;
+    font-size:15.5px; font-weight:700; color:#fff; background:var(--amber);
+    border:0; border-radius:11px; padding:13px 22px; cursor:pointer; transition:.15s; }
+  .btn:hover { background:#b56d15; }
+  .btn:disabled { opacity:.55; cursor:default; }
+  .btn .spin { width:15px; height:15px; border:2.5px solid rgba(255,255,255,.45);
+    border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; display:none; }
+  .btn.busy .spin { display:inline-block; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+
+  .status { margin-top:14px; font-size:13.5px; color:var(--muted); min-height:18px; }
+
+  .result { margin-top:20px; display:none; }
+  .result.show { display:block; }
+  .verdict { border-radius:13px; border:1px solid; padding:16px 18px; }
+  .verdict .v { font-size:18px; font-weight:800; letter-spacing:.01em; display:flex; align-items:center; gap:9px; }
+  .verdict .v .tag { font-family:ui-monospace,monospace; font-size:10.5px; font-weight:800;
+    letter-spacing:.07em; padding:3px 7px; border-radius:5px; color:#fff; }
+  .verdict .d { margin-top:7px; font-size:14px; line-height:1.5; color:var(--body); }
+  .verdict.genuine { background:var(--green-bg); border-color:var(--green-line); } .verdict.genuine .v { color:var(--green); }
+  .verdict.forged  { background:var(--red-bg);  border-color:var(--red-line);  } .verdict.forged .v { color:var(--red); } .verdict.forged .v .tag { background:var(--red); }
+  .verdict.suppressed { background:var(--amber-bg); border-color:var(--amber-lin); } .verdict.suppressed .v { color:var(--amberv); }
+  .verdict.blocked { background:var(--grey-bg); border-color:var(--grey-line); } .verdict.blocked .v { color:var(--grey); }
+  .verdict.err { background:var(--grey-bg); border-color:var(--grey-line); } .verdict.err .v { color:var(--grey); }
+
+  .facts { margin-top:12px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  .fact { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:11px 13px; }
+  .fact .k { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .fact .val { margin-top:5px; font-size:14px; color:var(--ink); word-break:break-all; }
+  .fact .val.no { color:var(--faint); }
+  .fact .val.ok { color:var(--green); }
+
+  .foot { margin-top:18px; padding-top:14px; border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .foot .note { font-size:12px; color:var(--muted); line-height:1.4; }
+  .foot .note b { color:var(--body); }
+  .foot .brand { font-size:12px; color:var(--amber); font-weight:600; text-decoration:none; white-space:nowrap; }
+
+  @media (max-width:480px){ .facts { grid-template-columns:1fr; } .probe { padding:24px 20px; } }
+</style>
+</head>
+<body>
+<div class="probe" id="probe">
+  <div class="eyebrow"><span class="dot"></span>Active STUN probing</div>
+  <h2>Does your browser lie about WebRTC?</h2>
+  <p class="lede">This runs a real STUN round-trip against a server we control, then checks the one thing a browser can't fake — whether the packet <b>actually arrived</b>.</p>
+
+  <button class="btn" id="go"><span class="spin"></span><span id="golbl">Run the probe</span></button>
+  <div class="status" id="status"></div>
+
+  <div class="result" id="result">
+    <div class="verdict" id="verdict">
+      <div class="v" id="vtitle"></div>
+      <div class="d" id="vdesc"></div>
+    </div>
+    <div class="facts">
+      <div class="fact"><div class="k">Browser reported</div><div class="val" id="f-js"></div></div>
+      <div class="fact"><div class="k">Server received</div><div class="val" id="f-srv"></div></div>
+      <div class="fact"><div class="k">Round-trip</div><div class="val" id="f-rtt"></div></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="note"><b>A strong signal, not a verdict.</b> “No packet” can also be privacy, a firewall, or NAT.</div>
+    <a class="brand" href="https://tls-reputation.com" target="_blank" rel="noopener">tls-reputation.com</a>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const API = (new URLSearchParams(location.search).get("api") || "").replace(/\/+$/, "");
+const fmt = (ms) => ms == null ? "—" : (+ms).toFixed(0) + " ms";
+
+function postHeight() {
+  try { parent.postMessage({ type: "stun-probe:height", height: document.body.scrollHeight }, "*"); } catch (e) {}
+}
+window.addEventListener("load", postHeight);
+
+const VERDICTS = {
+  genuine:    { cls:"genuine",    title:"Genuine",   tag:null,
+    d:"A real UDP round-trip — the reflexive address the browser showed is one it actually obtained." },
+  forgedval:  { cls:"forged",     title:"Forged",    tag:"VALUE SWAPPED",
+    d:"A packet did reach us, but the browser reported a different address — it substituted the value to hide its real exit. Anti-detect." },
+  forged:     { cls:"forged",     title:"Forged",    tag:"THE CATCH",
+    d:"The browser announced a public address it never sent a packet for. Fabricated — an anti-detect browser spoofing WebRTC." },
+  suppressed: { cls:"suppressed", title:"Suppressed",tag:null,
+    d:"A packet reached us, yet the browser exposed no reflexive result. Unusual — worth a second look." },
+  blocked:    { cls:"blocked",    title:"Blocked",   tag:null,
+    d:"WebRTC UDP is simply off — a privacy setting, a firewall, or NAT. The browser isn’t claiming anything it doesn’t have." },
+};
+
+function showVerdict(key, facts) {
+  const v = VERDICTS[key];
+  $("verdict").className = "verdict " + v.cls;
+  $("vtitle").innerHTML = v.title + (v.tag ? ` <span class="tag">${v.tag}</span>` : "");
+  $("vdesc").textContent = v.d;
+  $("f-js").innerHTML  = facts.js  ? `<span class="mono">${facts.js}</span>`  : `<span class="no">none</span>`;
+  $("f-srv").innerHTML = facts.srv ? `<span class="mono ok">${facts.srv}</span>` : `<span class="no">nothing</span>`;
+  $("f-rtt").textContent = facts.rtt != null ? fmt(facts.rtt) : "—";
+  $("result").classList.add("show");
+  postHeight();
+}
+
+function showError(msg) {
+  $("verdict").className = "verdict err";
+  $("vtitle").textContent = "Couldn’t reach the probe";
+  $("vdesc").textContent = msg;
+  ["f-js","f-srv"].forEach(i => $(i).innerHTML = `<span class="no">—</span>`);
+  $("f-rtt").textContent = "—";
+  $("result").classList.add("show");
+  postHeight();
+}
+
+async function run() {
+  const btn = $("go");
+  btn.disabled = true; btn.classList.add("busy"); $("golbl").textContent = "Testing…";
+  $("result").classList.remove("show"); $("status").textContent = "Allocating a probe session…";
+
+  let sess;
+  try {
+    const r = await fetch(API + "/init", { method: "POST" });
+    if (!r.ok) throw new Error("init " + r.status);
+    sess = await r.json();
+  } catch (e) {
+    $("status").textContent = "";
+    showError("The probe API didn’t respond. It may not be running yet.");
+    reset(); return;
+  }
+
+  $("status").textContent = "Gathering ICE candidates…";
+  const t0 = performance.now();
+  let jsSrflx = null, done = false;
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: `stun:${sess.stun_host}:${sess.stun_port}` }] });
+
+  const finish = async () => {
+    if (done) return; done = true;
+    try { pc.close(); } catch (e) {}
+    $("status").textContent = "Checking what the server received…";
+    let srv = { arrived: false };
+    try {
+      const r = await fetch(API + `/request/${sess.request_id}/consume`, { method: "POST" });
+      if (r.ok) srv = await r.json();
+    } catch (e) {}
+
+    const facts = {
+      js:  jsSrflx,
+      srv: srv.arrived ? `${srv.src_ip}:${srv.src_port}` : null,
+      rtt: srv.arrived ? srv.server_wait_ms : (performance.now() - t0),
+    };
+    let key;
+    if (srv.arrived && jsSrflx && jsSrflx === srv.src_ip) key = "genuine";
+    else if (srv.arrived && jsSrflx && jsSrflx !== srv.src_ip) key = "forgedval";
+    else if (!srv.arrived && jsSrflx) key = "forged";
+    else if (srv.arrived && !jsSrflx) key = "suppressed";
+    else key = "blocked";
+
+    $("status").textContent = "";
+    showVerdict(key, facts);
+    reset();
+  };
+
+  pc.onicecandidate = (e) => {
+    if (!e.candidate || !e.candidate.candidate) return finish();
+    const c = e.candidate.candidate, p = c.split(" ");
+    const typ = (c.match(/ typ (\S+)/) || [])[1];
+    if (typ === "srflx" && !jsSrflx) jsSrflx = p[4];
+  };
+  pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") finish(); };
+  setTimeout(finish, 6000);
+
+  try { pc.createDataChannel("probe"); await pc.setLocalDescription(await pc.createOffer()); }
+  catch (e) { finish(); }
+}
+
+function reset() {
+  const btn = $("go");
+  btn.disabled = false; btn.classList.remove("busy"); $("golbl").textContent = "Run again";
+}
+
+$("go").addEventListener("click", run);
+</script>
+</body>
+</html>
