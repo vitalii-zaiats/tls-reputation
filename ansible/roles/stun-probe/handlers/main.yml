@@ -1,0 +1,7 @@
+---
+# "Reload nginx" is provided by the nginx role, which this playbook includes
+# ahead of this one; notifying it here reuses that handler.
+- name: Restart stun-probe
+  community.docker.docker_container:
+    name: "{{ tlsrep_stunprobe_container_name }}"
+    restart: true

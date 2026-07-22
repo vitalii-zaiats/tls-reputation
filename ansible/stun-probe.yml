@@ -1,0 +1,24 @@
+---
+# WebRTC-forgery STUN probe + embeddable widget. Runs on the app host, behind
+# its nginx on stun-probe.<domain>, host-networked so the per-session STUN UDP
+# ports are internet-reachable.
+#
+#   ansible-playbook stun-probe.yml -e tlsrep_image_tag=<git-sha>
+#
+# The nginx role is included so the ACME webroot, the nginx version fact this
+# role's vhost template needs, and nginx itself are guaranteed present; it is
+# idempotent and leaves the main site vhost untouched when nothing changed.
+
+- name: Deploy the tls-reputation STUN probe
+  hosts: tlsrep_backend
+  become: true
+
+  roles:
+    - role: common
+      tags: [common, setup]
+    - role: docker
+      tags: [docker, setup]
+    - role: nginx
+      tags: [nginx, setup]
+    - role: stun-probe
+      tags: [stun-probe, deploy]

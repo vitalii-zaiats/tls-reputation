@@ -1,0 +1,28 @@
+---
+tlsrep_stunprobe_container_name: tlsrep-stun-probe
+
+tlsrep_stunprobe_image_repo: "{{ tlsrep_image_base }}-stun-probe"
+tlsrep_stunprobe_image: "{{ tlsrep_stunprobe_image_repo }}:{{ tlsrep_image_tag }}"
+
+# Its own hostname + Let's Encrypt certificate; served behind the host nginx on
+# :443, so the main site's config is never touched.
+tlsrep_stunprobe_domain: "stun-probe.{{ tlsrep_domain }}"
+tlsrep_stunprobe_le_dir: "/etc/letsencrypt/live/{{ tlsrep_stunprobe_domain }}"
+
+# The HTTP API (widget + /init + /consume). The container is host-networked, so
+# this binds on the host's loopback and nginx proxies to it.
+tlsrep_stunprobe_http_port: 8100
+
+# STUN listeners. One UDP port is allocated per session from this range and must
+# be reachable from the internet — the classic reason a STUN/TURN container runs
+# with host networking rather than publishing the whole range. The host's UFW is
+# inactive, so nothing needs opening.
+tlsrep_stunprobe_port_start: 41000
+tlsrep_stunprobe_port_count: 200
+tlsrep_stunprobe_ttl: 8
+
+tlsrep_stunprobe_memory_max: 256M
+tlsrep_stunprobe_pids_limit: 2048
+tlsrep_stunprobe_nofile_limit: 65535
+
+tlsrep_acme_webroot: /var/www/letsencrypt

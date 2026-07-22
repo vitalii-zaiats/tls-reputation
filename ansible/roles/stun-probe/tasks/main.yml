@@ -1,0 +1,142 @@
+---
+# --------------------------------------------------------------------------
+# WebRTC-forgery STUN probe: an HTTP API (/init, /consume) plus an embeddable
+# widget, behind the host nginx on stun-probe.<domain>. The container runs with
+# host networking so the per-session STUN UDP ports are internet-reachable; the
+# host manages its own (currently inactive) firewall, so this role opens none.
+# --------------------------------------------------------------------------
+
+- name: Assert an image tag is set
+  ansible.builtin.assert:
+    that:
+      - tlsrep_image_tag | default('') | length > 0
+    fail_msg: "tlsrep_image_tag is empty (pass -e tlsrep_image_tag=<git-sha>)."
+    quiet: true
+  run_once: true
+  tags: [always]
+
+# --- nginx vhost, two-phase (mirrors the main site) ----------------------
+# The vhost's :443 block references a certificate that does not exist on the
+# first run, and nginx refuses to start with a missing ssl_certificate. So
+# render an HTTP-only vhost first, obtain the cert, then render the real one.
+- name: Check for the stun-probe certificate
+  ansible.builtin.stat:
+    path: "{{ tlsrep_stunprobe_le_dir }}/fullchain.pem"
+  register: _stunprobe_cert
+  tags: [tls, config]
+
+- name: Install the stun-probe nginx vhost
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ tlsrep_stunprobe_domain }}"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    _stunprobe_vhost_tls: "{{ _stunprobe_cert.stat.exists }}"
+  notify: Reload nginx
+  tags: [tls, config]
+
+- name: Enable the stun-probe vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ tlsrep_stunprobe_domain }}"
+    dest: "/etc/nginx/sites-enabled/{{ tlsrep_stunprobe_domain }}"
+    state: link
+  notify: Reload nginx
+  tags: [tls, config]
+
+- name: Validate the assembled nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  tags: [config]
+
+# nginx must be serving the ACME path before certbot runs.
+- name: Apply the pending nginx reload
+  ansible.builtin.meta: flush_handlers
+  tags: [tls, config]
+
+- name: Obtain the Let's Encrypt certificate for the stun-probe domain
+  ansible.builtin.command:
+    cmd: >-
+      certbot certonly --webroot
+      --webroot-path {{ tlsrep_acme_webroot }}
+      --cert-name {{ tlsrep_stunprobe_domain }}
+      -d {{ tlsrep_stunprobe_domain }}
+      --email {{ tlsrep_certbot_email | default('admin@' + tlsrep_domain) }}
+      --agree-tos --non-interactive --no-eff-email --keep-until-expiring
+    creates: "{{ tlsrep_stunprobe_le_dir }}/fullchain.pem"
+  when: not _stunprobe_cert.stat.exists
+  tags: [tls]
+
+- name: Re-check for the stun-probe certificate
+  ansible.builtin.stat:
+    path: "{{ tlsrep_stunprobe_le_dir }}/fullchain.pem"
+  register: _stunprobe_cert_after
+  tags: [tls]
+
+# Second phase: the cert now exists, so render the TLS vhost. Skipped on
+# steady-state runs, where the first render already had TLS.
+- name: Install the TLS vhost now the certificate exists
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-available/{{ tlsrep_stunprobe_domain }}"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    _stunprobe_vhost_tls: true
+  when:
+    - not _stunprobe_cert.stat.exists
+    - _stunprobe_cert_after.stat.exists | default(false)
+  notify: Reload nginx
+  tags: [tls]
+
+# --- container -----------------------------------------------------------
+- name: Run the stun-probe container
+  community.docker.docker_container:
+    name: "{{ tlsrep_stunprobe_container_name }}"
+    image: "{{ tlsrep_stunprobe_image }}"
+    pull: "{{ tlsrep_image_pull | default(true) }}"
+    state: started
+    restart_policy: unless-stopped
+
+    # Host networking: one UDP port per session is bound on demand from
+    # {{ tlsrep_stunprobe_port_start }}..{{ tlsrep_stunprobe_port_start + tlsrep_stunprobe_port_count - 1 }}
+    # and must be internet-reachable. Publishing that range would spawn one
+    # docker-proxy per port; host networking binds them directly instead. The
+    # HTTP API is pinned to loopback so only nginx can reach it.
+    network_mode: host
+
+    env:
+      STUNPROBE_HTTP_HOST: "127.0.0.1"
+      STUNPROBE_HTTP_PORT: "{{ tlsrep_stunprobe_http_port | string }}"
+      STUNPROBE_UDP_BIND: "0.0.0.0"
+      STUNPROBE_STUN_HOST: "{{ tlsrep_stunprobe_domain }}"
+      STUNPROBE_PORT_START: "{{ tlsrep_stunprobe_port_start | string }}"
+      STUNPROBE_PORT_COUNT: "{{ tlsrep_stunprobe_port_count | string }}"
+      STUNPROBE_TTL: "{{ tlsrep_stunprobe_ttl | string }}"
+
+    # --- hardening ---
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=16m"
+    cap_drop: [ALL]
+    security_opts:
+      - "no-new-privileges:true"
+
+    # --- limits ---
+    memory: "{{ tlsrep_stunprobe_memory_max }}"
+    memory_swap: "{{ tlsrep_stunprobe_memory_max }}"
+    pids_limit: "{{ tlsrep_stunprobe_pids_limit }}"
+    ulimits:
+      - "nofile:{{ tlsrep_stunprobe_nofile_limit }}:{{ tlsrep_stunprobe_nofile_limit }}"
+
+    log_driver: json-file
+    log_options:
+      max-size: "{{ tlsrep_docker_log_max_size | default('10m') }}"
+      max-file: "{{ tlsrep_docker_log_max_file | default(3) | string }}"
+
+    labels:
+      com.tls-reputation.component: stun-probe
+      com.tls-reputation.tag: "{{ tlsrep_image_tag }}"
+  tags: [deploy]

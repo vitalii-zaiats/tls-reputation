@@ -23,7 +23,7 @@ GIT_SHA     := $(shell git rev-parse --short HEAD 2>/dev/null || echo nogit)
 GIT_DIRTY   := $(shell test -n "`git status --porcelain 2>/dev/null`" && echo -dirty)
 VERSION     ?= $(GIT_SHA)$(GIT_DIRTY)
 
-COMPONENTS  := backend frontend proxy probe
+COMPONENTS  := backend frontend proxy probe stun-probe
 IMAGE_BASE  := $(REGISTRY)/$(OWNER)/$(PROJECT)
 
 BUILDER     ?= tlsrep-builder
@@ -84,6 +84,7 @@ build-backend:  ; $(call build_component,backend)
 build-frontend: ; $(call build_component,frontend)
 build-proxy:    ; $(call build_component,proxy)
 build-probe:    ; $(call build_component,probe)
+build-stun-probe: ; $(call build_component,stun-probe)
 
 # --- push (build + --push) --------------------------------------------------
 
@@ -97,13 +98,14 @@ push-backend:  ; @$(MAKE) build-backend  PUSH=1
 push-frontend: ; @$(MAKE) build-frontend PUSH=1
 push-proxy:    ; @$(MAKE) build-proxy    PUSH=1
 push-probe:    ; @$(MAKE) build-probe    PUSH=1
+push-stun-probe: ; @$(MAKE) build-stun-probe PUSH=1
 
 # --- deploy -----------------------------------------------------------------
 
 ANSIBLE_DIR   ?= ansible
 ANSIBLE_FLAGS ?=
 
-.PHONY: deploy deploy-backend deploy-frontend deploy-proxy deploy-probe
+.PHONY: deploy deploy-backend deploy-frontend deploy-proxy deploy-probe deploy-stun-probe
 deploy: push
 	cd $(ANSIBLE_DIR) && ansible-playbook site.yml \
 		-e tlsrep_image_tag=$(VERSION) $(ANSIBLE_FLAGS)
@@ -122,6 +124,10 @@ deploy-proxy: push-proxy
 
 deploy-probe: push-probe
 	cd $(ANSIBLE_DIR) && ansible-playbook probe.yml \
+		-e tlsrep_image_tag=$(VERSION) $(ANSIBLE_FLAGS)
+
+deploy-stun-probe: push-stun-probe
+	cd $(ANSIBLE_DIR) && ansible-playbook stun-probe.yml \
 		-e tlsrep_image_tag=$(VERSION) $(ANSIBLE_FLAGS)
 
 # --- local development ------------------------------------------------------
